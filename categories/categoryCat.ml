@@ -70,13 +70,13 @@ end
 
 module Ps = Presheaf(Cat)
 
-let l = Ps.SGen.fresh_gen "l"
-let r = Ps.SGen.fresh_gen "r"
-let y = Ps.SGen.fresh_gen "y"
-let l' = Ps.SGen.fresh_gen "l'"
-let r' = Ps.SGen.fresh_gen "r'"
-let y' = Ps.SGen.fresh_gen "y'"
-let c = Ps.SGen.fresh_gen "c"
+let l = Ps.SGen.fresh_gen_with_priority "l" 0
+let r = Ps.SGen.fresh_gen_with_priority "r" 2
+let y = Ps.SGen.fresh_gen_with_priority "y" 1
+let l' = Ps.SGen.fresh_gen_with_priority "l'" 0
+let r' = Ps.SGen.fresh_gen_with_priority "r'" 2
+let y' = Ps.SGen.fresh_gen_with_priority "y'" 1
+let c = Ps.SGen.fresh_gen_with_priority "c" 3
 
 let psA =
   let p = Ps.ps_empty' () in
@@ -108,16 +108,16 @@ let psf =
 
 let o_pair = (psA,psB,psf)
 
-let x = Ps.SGen.fresh_gen "x"
-let y = Ps.SGen.fresh_gen "y"
-let idx = Ps.SGen.fresh_gen "x;id"
-let idy = Ps.SGen.fresh_gen "y;id"
-let a = Ps.SGen.fresh_gen "a"
-let b = Ps.SGen.fresh_gen "b"
-let idxb = Ps.SGen.fresh_gen "(idx,b)"
-let aidy = Ps.SGen.fresh_gen "(a,idy)"
-let compa = Ps.SGen.fresh_gen "a*idy"
-let compb = Ps.SGen.fresh_gen "idx*b"
+let x = Ps.SGen.fresh_gen_with_priority "x" 1
+let y = Ps.SGen.fresh_gen_with_priority "y" 1
+let idx = Ps.SGen.fresh_gen_with_priority "x;id" 2
+let idy = Ps.SGen.fresh_gen_with_priority "y;id" 2
+let a = Ps.SGen.fresh_gen_with_priority "a" 0
+let b = Ps.SGen.fresh_gen_with_priority "b" 0
+let idxb = Ps.SGen.fresh_gen_with_priority "(idx,b)" 3
+let aidy = Ps.SGen.fresh_gen_with_priority "(a,idy)" 3
+let compa = Ps.SGen.fresh_gen_with_priority "a*idy" 4
+let compb = Ps.SGen.fresh_gen_with_priority "idx*b" 4
 
 let psA =
   let p = Ps.ps_empty' () in
@@ -203,26 +203,26 @@ let psf =
 
 let o_unitr = (psA,psB,psf)
 
-let a = Ps.SGen.fresh_gen "a"
-let b = Ps.SGen.fresh_gen "b"
-let c = Ps.SGen.fresh_gen "c"
-let pab = Ps.SGen.fresh_gen "(a,b)"
-let pbc = Ps.SGen.fresh_gen "(b,c)"
-let cab = Ps.SGen.fresh_gen "a*b"
-let cbc = Ps.SGen.fresh_gen "b*c"
-let pcabc= Ps.SGen.fresh_gen "(a*b,c)"
-let pacbc= Ps.SGen.fresh_gen "(a,b*c)"
+let a = Ps.SGen.fresh_gen_with_priority "a" 1
+let b = Ps.SGen.fresh_gen_with_priority "b" 2
+let c = Ps.SGen.fresh_gen_with_priority "c" 5
+let pab = Ps.SGen.fresh_gen_with_priority "(a,b)" 0
+let pbc = Ps.SGen.fresh_gen_with_priority "(b,c)" 4
+let cab = Ps.SGen.fresh_gen_with_priority "a*b" 3
+let cbc = Ps.SGen.fresh_gen_with_priority "b*c" 6
+let pcabc= Ps.SGen.fresh_gen_with_priority "(a*b,c)" 7
+let pacbc= Ps.SGen.fresh_gen_with_priority "(a,b*c)" 8
 
-let a' = Ps.SGen.fresh_gen "a"
-let b' = Ps.SGen.fresh_gen "b"
-let c' = Ps.SGen.fresh_gen "c"
-let pab' = Ps.SGen.fresh_gen "(a,b)"
-let pbc' = Ps.SGen.fresh_gen "(b,c)"
-let cab' = Ps.SGen.fresh_gen "a*b"
-let cbc' = Ps.SGen.fresh_gen "b*c"
-let pcabc'= Ps.SGen.fresh_gen "(a*b,c)"
-let pacbc'= Ps.SGen.fresh_gen "(a,b*c)"
-let cabc' = Ps.SGen.fresh_gen "a*b*c"
+let a' = Ps.SGen.fresh_gen_with_priority "a" 1
+let b' = Ps.SGen.fresh_gen_with_priority "b" 2
+let c' = Ps.SGen.fresh_gen_with_priority "c" 5
+let pab' = Ps.SGen.fresh_gen_with_priority "(a,b)" 0
+let pbc' = Ps.SGen.fresh_gen_with_priority "(b,c)" 4
+let cab' = Ps.SGen.fresh_gen_with_priority "a*b" 3
+let cbc' = Ps.SGen.fresh_gen_with_priority "b*c" 5
+let pcabc'= Ps.SGen.fresh_gen_with_priority "(a*b,c)" 7
+let pacbc'= Ps.SGen.fresh_gen_with_priority "(a,b*c)" 8
+let cabc' = Ps.SGen.fresh_gen_with_priority "a*b*c" 9
 
 let psA =
   let p = Ps.ps_empty' () in
@@ -288,4 +288,4 @@ let psf =
 
 let o_assoc = (psA,psB,psf)
 
-let ortho_maps = [o_pair;o_unitl;o_unitr;o_assoc]
+let ortho_maps = [o_unitl;o_unitr;o_assoc;o_pair]

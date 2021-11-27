@@ -1,5 +1,6 @@
 
-let fpf = Format.printf
+let fpf =
+  Format.printf
 
 module type OrdNamedType = sig
   type t
@@ -11,6 +12,12 @@ end
 module type OrdNamedInstType = sig
   include OrdNamedType
   val fresh_gen : string -> t
+end
+
+module type OrdNamedInstPriorityType = sig
+  include OrdNamedInstType
+  val fresh_gen_with_priority : string -> int -> t
+  val get_priority : t -> int
 end
 
 module type Category = sig
@@ -220,9 +227,9 @@ module type PresheafT = sig
     val arr_from : obj_t -> arr_t list
     val arr_to : obj_t -> arr_t list
   end
-  type sgen = int * string
+  type sgen
   val fresh : unit -> int
-  module SGen : OrdNamedInstType
+  module SGen : OrdNamedInstPriorityType
   type t
   type t'
   val ps_empty' : unit -> t'
@@ -359,17 +366,30 @@ module Presheaf (C : Category) : PresheafT with module C = C = struct
   (* TODO: uncomment ^ when the code is finalized. *)
   module C = C
   module Cop = CatLib (Op (C))
-  type sgen = int * string
+  type sgen = { id : int ; name : string ; priority : int }
+  (* priority is useful to prioritize some elements in order to compute
+     morphisms from one presheaf to another. *)
 
   let fresh = let r = ref 0 in
     fun () -> (incr r; !r)
 
-  module SGen : OrdNamedInstType = struct
+  module SGen = struct
     type t = sgen
     let compare = compare
-    let fresh_gen name = (fresh (), name)
-    let to_name (_,s) = s
+    let fresh_gen name = { id = fresh () ; name = name ; priority = -1 }
+    let to_name sgen = sgen.name
+    let fresh_gen_with_priority name priority =
+      { id = fresh () ; name = name ; priority = priority }
+    let get_priority sgen = sgen.priority
   end
+
+  let compare_with_priority l r =
+    match l.priority,r.priority with
+    | (-1,-1) -> 0
+    | (-1,_) -> 1
+    | (_,-1) -> -1
+    | (a,b) when a < b -> -1
+    | _ -> 1
 
   module SSet = Set.Make(SGen)
 
@@ -404,6 +424,19 @@ module Presheaf (C : Category) : PresheafT with module C = C = struct
 
   let ps_foreach_map (ps : t') (f : (SGen.t * Cop.AGen.t * SGen.t) -> unit) =
     List.iter f !(ps.maps)
+
+  let arr_to_map (ps : t) arr el =
+    AEMap.find (arr,el) !(ps.maps)
+
+  let arr_to_map_opt (ps : t) arr el =
+    AEMap.find_opt (arr,el) !(ps.maps)
+
+  let arr_to_map' (ps : t') arr el =
+    List.find (fun (s,a,t) -> s = el && a = arr) !(ps.maps)
+
+  let arr_to_map_opt' (ps : t') arr el =
+    List.find_opt (fun (s,a,t) -> s = el && a = arr) !(ps.maps)
+
 
   let print_ps_elts' (ps : t') =
     let oelts = OMap.bindings !(ps.elts) in
@@ -508,6 +541,48 @@ module Presheaf (C : Category) : PresheafT with module C = C = struct
     with
     | Exit -> false
 
+
+  (** Tell whether a morphism is a weak epi, in the sense that every element of
+     B is below an element in the image of F. *)
+  let morph_is_weak_epi (psA : t') (psB : t') (mF : morph) : bool =
+    let imgs = ref [] in
+    ps_foreach_oelt psA
+      (fun (o,elA) ->
+         let elB = morph_img mF elA in
+         imgs := (o,elB) :: !imgs
+      ) ;
+    let done_els = ref SSet.empty in
+    let rec aux = function
+      | [] ->
+        begin
+          let objBs = ref SSet.empty in
+          ps_foreach_oelt psB (fun (o,elB) ->
+              objBs := SSet.add elB !objBs
+            );
+          if SSet.is_empty (SSet.diff !objBs !done_els) then
+            true
+          else
+            false
+        end
+      | (o,elB) :: q when SSet.mem elB !done_els -> aux q
+      | (o,elB) :: q ->
+        begin
+          done_els := SSet.add elB !done_els;
+          let arrs = Cop.arr_from o in
+          let next = ref q in
+          List.iter
+            (fun arr ->
+               let o_target = Cop.tgt arr in
+               match arr_to_map_opt' psB arr elB with
+               | None -> ()
+               | Some (_,_,other_elB) -> next := (o_target,other_elB) :: !next
+            )
+            arrs;
+          aux !next
+        end
+    in
+    aux !imgs
+
   type ctxt = {
     init_elts : SSet.t OMap.t ; (* the initial elements from which the first presheaf was made of. *)
     reps : SGen.t OSMap.t ref ; (* the current projections for all the elements that appeared at some point in the construction.*)
@@ -567,18 +642,6 @@ module Presheaf (C : Category) : PresheafT with module C = C = struct
 
   let obj_to_set (ps : t) o =
     OMap.find o !(ps.elts)
-
-  let arr_to_map (ps : t) arr el =
-    AEMap.find (arr,el) !(ps.maps)
-
-  let arr_to_map_opt (ps : t) arr el =
-    AEMap.find_opt (arr,el) !(ps.maps)
-
-  let arr_to_map' (ps : t') arr el =
-    List.find (fun (s,a,t) -> s = el && a = arr) !(ps.maps)
-
-  let arr_to_map_opt' (ps : t') arr el =
-    List.find_opt (fun (s,a,t) -> s = el && a = arr) !(ps.maps)
 
   let rec path'_to_map (ps : t) = function
     Cop.PathOne a -> arr_to_map ps a
@@ -1118,7 +1181,14 @@ module Presheaf (C : Category) : PresheafT with module C = C = struct
 
   (* compute the liftings of g : A -> X along f : A -> B *)
   let compute_ps_liftings (psA : t') (psB : t') (mf : morph) (psX : t') (mg : morph) =
+    fpf "compute_ps_liftings@.";
     let oelts = compute_oelt_pairs psB in
+    let oelts = List.sort (fun (_,l) (_,r) -> compare_with_priority l r) oelts in
+    fpf "list of oelt pairs:@.[";
+    List.iter (fun (o,elt) ->
+        fpf "(%s,%s)," (Cop.obj_to_name o) (SGen.to_name elt)
+    ) oelts;
+    fpf "]@.";
     let invmap = compute_inv_maps psA psB mf in
     let res = ref [] in
     let rec explore next_oelts sol = match next_oelts with
@@ -1514,20 +1584,73 @@ module Presheaf (C : Category) : PresheafT with module C = C = struct
    *       b3 := true;
    *   done; *)
 
+  let ctxt_enforce_ex_unique_lifting_step ortho_maps (ctxt : ctxt) =
+    let new_elts = ref [] in
+    let new_maps = ref [] in
+    let new_equations = ref [] in
+    let tell_new_elt (o,elt) =
+      new_elts := (o,elt) :: !new_elts
+    in
+    let tell_new_map (arr,el_s,el_t) =
+      new_maps := (arr,el_s,el_t) :: !new_maps
+    in
+    let tell_new_equation (o,el1,el2) =
+      new_equations := (o,el1,el2) :: !new_equations
+    in
+    List.iteri
+      (fun i (psA,psB,mF) ->
+         fpf "ortho map n°%d@." i;
+         let mAtoX_l = compute_ps_morphs psA ctxt.ps in
+         let morphs_and_liftings = List.map
+             (fun mAtoX ->
+                let liftings = compute_ps_liftings psA psB mF ctxt.ps mAtoX in
+                (mAtoX,liftings)
+             )
+             mAtoX_l
+         in
+         fpf "morph and liftings computed. Total: %d@." (List.length morphs_and_liftings);
+         let morphs_no_lifting = List.filter_map
+             (function
+               | (f,[]) -> Some f
+               | _ -> None)
+             morphs_and_liftings
+         in
+         List.iter
+           (fun mG ->
+              fpf "morph computed@.";
+              let rename_fun o el = "lift("^ SGen.to_name el ^"_" ^ string_of_int (fresh ()) ^ ")" in
+              let (psB',mBB') = ps_make_renamed_copy psB rename_fun in
+              ps_foreach_oelt psB' tell_new_elt;
+              ps_foreach_map psB' (fun (el_s,arr,el_t) -> tell_new_map (arr,el_s,el_t));
+              ps_foreach_oelt psA (fun (o,elA) ->
+                  let elB = morph_img mF elA in
+                  let elB' = morph_img mBB' elB in
+                  let elX = morph_img mG elA in
+                  tell_new_equation (o,elX,elB')
+                )
+           )
+           morphs_no_lifting;
+      )
+      ortho_maps;
+    ctxt_add_unify_construction ctxt !new_elts !new_maps !new_equations
+
   let rec ctxt_compute_ortho ortho_maps (ctxt : ctxt) =
     let old_rev = ctxt_get_rev ctxt in
     fpf "entering@.";
     ctxt_presheaf_interleaved ctxt ;
     fpf "after interleaved@.";
+    ctxt_enforce_unique_lifting_step ortho_maps ctxt;
     ctxt_enforce_ex_lifting_step ortho_maps ctxt ;
     fpf "after ex lifting:@.";
     print_ps_elts' @@ ctxt_get_ps ctxt;
+    ctxt_presheaf_interleaved ctxt ;
     fpf "@.";
     let r_rev = ref (-1) in
     while (!r_rev < ctxt_get_rev ctxt) do
       fpf "starting a loop@.";
       r_rev := ctxt_get_rev ctxt ;
       ctxt_enforce_unique_lifting_step ortho_maps ctxt;
+      ctxt_presheaf_interleaved ctxt ;
       fpf "after a loop:@.";
       print_ps_elts' @@ ctxt_get_ps ctxt;
       fpf "@.";
