@@ -44,9 +44,9 @@ module Cat = struct
   let equations = [
     (object_to_path C0,list_to_path [Dminus;Id]);
     (object_to_path C0,list_to_path [Dplus;Id]);
-    (list_to_path [Dminus;Comp],list_to_path [Dminus;PiL]);
-    (list_to_path [Dplus;Comp],list_to_path [Dplus;PiR]);
-    (list_to_path [Dplus;PiL],list_to_path [Dminus;PiR])
+    (list_to_path [Dminus;PiL],list_to_path [Dminus;Comp]);
+    (list_to_path [Dplus;PiR],list_to_path [Dplus;Comp]);
+    (list_to_path [Dminus;PiR],list_to_path [Dplus;PiL])
   ]
   (*NOTE: here, if we inverse the members of the equation, we get a rather long
      element name when we build the free ps on one element. The privileged

@@ -1,3 +1,4 @@
 "tests": include
 "categories": include
 "functors": include
+"tests": include

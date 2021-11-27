@@ -1,4 +1,6 @@
 
+let fpf = Format.printf
+
 module type OrdNamedType = sig
   type t
   val compare : t -> t -> int
@@ -1074,14 +1076,20 @@ module Presheaf (C : Category) : PresheafT with module C = C = struct
                        Option.bind res (fun (o,s,t) -> Some t)
                     )
                 in
-                let im2 = AEMap.find_opt (arr,el_t) mapB in
-                ignore @@ Option.bind im12 (fun el1 ->
-                    Option.bind im2 (fun el2 ->
+                match im12 with
+                | None -> ()
+                | Some el1 ->
+                  begin
+                    let im2 = AEMap.find_opt (arr,el_t) mapB in
+                    match im2 with
+                    | None -> raise Stdlib.Exit
+                    | Some el2 ->
+                      begin
                         if el1 <> el2 then
                           raise Stdlib.Exit;
-                        None
-                      )
-                  )
+                        ()
+                      end
+                  end
              )
              arrows
         )
@@ -1351,8 +1359,9 @@ module Presheaf (C : Category) : PresheafT with module C = C = struct
     let tell_new_equation (o,el1,el2) =
       new_equations := (o,el1,el2) :: !new_equations
     in
-    List.iter
-      (fun (psA,psB,mF) ->
+    List.iteri
+      (fun i (psA,psB,mF) ->
+         fpf "ortho map n°%d@." i;
          let mAtoX_l = compute_ps_morphs psA ctxt.ps in
          let morphs_and_liftings = List.map
              (fun mAtoX ->
@@ -1361,6 +1370,7 @@ module Presheaf (C : Category) : PresheafT with module C = C = struct
              )
              mAtoX_l
          in
+         fpf "morph and liftings computed. Total: %d@." (List.length morphs_and_liftings);
          let morphs_no_lifting = List.filter_map
              (function
                | (f,[]) -> Some f
@@ -1369,7 +1379,8 @@ module Presheaf (C : Category) : PresheafT with module C = C = struct
          in
          List.iter
            (fun mG ->
-              let rename_fun o el = "lift("^ SGen.to_name el ^")" in
+              fpf "morph computed@.";
+              let rename_fun o el = "lift("^ SGen.to_name el ^"_" ^ string_of_int (fresh ()) ^ ")" in
               let (psB',mBB') = ps_make_renamed_copy psB rename_fun in
               ps_foreach_oelt psB' tell_new_elt;
               ps_foreach_map psB' (fun (el_s,arr,el_t) -> tell_new_map (arr,el_s,el_t));
@@ -1440,11 +1451,14 @@ module Presheaf (C : Category) : PresheafT with module C = C = struct
     let tell_new_equation (o,el1,el2) =
       new_equations := (o,el1,el2) :: !new_equations
     in
-    List.iter
-      (fun (psA,psB,mF) ->
+    List.iteri
+      (fun i (psA,psB,mF) ->
+         (* Format.printf "orthogonal morph %d@." i; *)
          let mAtoX_l = compute_ps_morphs psA ctxt.ps in
          let morphs_and_liftings = List.map
              (fun mAtoX ->
+                (* Format.printf "morph found:@.";
+                 * print_morph mAtoX; *)
                 let liftings = compute_ps_liftings psA psB mF ctxt.ps mAtoX in
                 (mAtoX,liftings)
              )
@@ -1502,17 +1516,26 @@ module Presheaf (C : Category) : PresheafT with module C = C = struct
 
   let rec ctxt_compute_ortho ortho_maps (ctxt : ctxt) =
     let old_rev = ctxt_get_rev ctxt in
+    fpf "entering@.";
     ctxt_presheaf_interleaved ctxt ;
+    fpf "after interleaved@.";
     ctxt_enforce_ex_lifting_step ortho_maps ctxt ;
+    fpf "after ex lifting:@.";
+    print_ps_elts' @@ ctxt_get_ps ctxt;
+    fpf "@.";
     let r_rev = ref (-1) in
     while (!r_rev < ctxt_get_rev ctxt) do
+      fpf "starting a loop@.";
       r_rev := ctxt_get_rev ctxt ;
-      ctxt_enforce_unique_lifting_step ortho_maps ctxt
+      ctxt_enforce_unique_lifting_step ortho_maps ctxt;
+      fpf "after a loop:@.";
+      print_ps_elts' @@ ctxt_get_ps ctxt;
+      fpf "@.";
     done ;
     if (old_rev < ctxt_get_rev ctxt) then
       ctxt_compute_ortho ortho_maps ctxt
     else
-      ()
+      (fpf "leaving@.")
 
   (** compute the reflection of a map. ctxtX and ctxtY must be already orthogonalized. *)
   let ctxt_compute_ortho_map ortho_maps (ctxtX : ctxt) (ctxtY : ctxt) (m : morph) =
