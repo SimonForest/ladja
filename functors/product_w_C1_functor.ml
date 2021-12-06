@@ -34,7 +34,7 @@ let yoneda_maps =
       let o_tgt = CategoryCat.Cat.tgt arr in
       let (yps_S,yel_S) = OMap.find o_src yoneda_ps in
       let (yps_T,yel_T) = OMap.find o_tgt yoneda_ps in
-      let (_,_,el_T_t) = PsC.arr_to_map' yps_T arr yel_T in
+      let el_T_t = PsC.arr_to_map' yps_T arr yel_T in
       PsC.morph_add m o_src yel_S el_T_t;
       ignore @@ PsC.morph_expand yps_S yps_T m;
       res := AMap.add arr m !res

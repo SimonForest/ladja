@@ -263,9 +263,9 @@ module type PresheafT = sig
   val obj_to_set : t -> Cop.obj_t -> Set.Make(SGen).t
   val arr_to_map : t -> Cop.AGen.t -> SGen.t -> SGen.t
   val arr_to_map_opt : t -> Cop.AGen.t -> SGen.t -> SGen.t option
-  val arr_to_map' : t' -> C.arr_t -> SGen.t -> SGen.t * C.arr_t * SGen.t
+  val arr_to_map' : t' -> C.arr_t -> SGen.t -> SGen.t
   val arr_to_map_opt' :
-    t' -> Cop.AGen.t -> SGen.t -> (SGen.t * Cop.AGen.t * SGen.t) option
+    t' -> Cop.AGen.t -> SGen.t -> SGen.t option
   val path'_to_map : t -> Cop.path' -> SGen.t -> SGen.t
   val path_to_map : t -> Cop.path -> SGen.t -> SGen.t
   val add_el : t -> Cop.OGen.t -> SGen.t -> unit
@@ -277,17 +277,12 @@ module type PresheafT = sig
   val add_map : t -> Cop.AGen.t -> SGen.t -> SGen.t -> unit
   val add_map' : t' -> Cop.AGen.t -> SGen.t -> SGen.t -> unit
   val ctxt_add_map' : ctxt -> Cop.AGen.t -> SGen.t -> SGen.t -> unit
-  val compute_yoneda_obj : Cop.OGen.t -> t'
   val equalize_elts' :
     t' -> Cop.obj_t -> SGen.t -> SGen.t list -> unit
   val ctxt_equalize_elts' :
     ctxt -> Cop.OGen.t -> SGen.t -> SGen.t list -> unit
   val equalize_elts : t' -> Cop.obj_t -> SGen.t -> SGen.t -> unit
   val ctxt_equalize_elts : ctxt -> Cop.OGen.t -> SGen.t -> SGen.t -> unit
-  val compute_pairs_equalization :
-    t' ->
-    (Cop.obj_t * SGen.t * SGen.t) list ->
-    (Cop.obj_t * SGen.t * SGen.t) list ref
   val find_parallel_maps :
     t' -> ((SGen.t * Cop.AGen.t) * SGen.t list) list
   val ctxt_find_parallel_maps :
@@ -309,9 +304,7 @@ module type PresheafT = sig
   val ctxt_enforce_equations_one_step : ctxt -> unit
   val expand_presheaf_stupid : t -> 'a
   val expand_presheaf_naive : t -> unit
-  val expand_presheaf_one_step : t' -> (Cop.obj_t * SGen.t) list
   val ctxt_expand_presheaf_one_step : ctxt -> unit
-  val expand_presheaf_interleaved : t' -> bool
   val ctxt_presheaf_interleaved : ctxt -> unit
   val check_morph' :
     t' -> t' -> (Cop.OGen.t * SGen.t * SGen.t) list -> bool
@@ -331,23 +324,14 @@ module type PresheafT = sig
     morph -> morph -> morph
   val morph_comp_with_partial_r :
     morph -> morph -> morph
-  val ps_add_unify_construction :
-    t' ->
-    (Cop.OGen.t * SGen.t) list ->
-    (Cop.AGen.t * SGen.t * SGen.t) list ->
-    (Cop.obj_t * SGen.t * SGen.t) list -> t' * morph
   val ctxt_add_unify_construction :
     ctxt ->
     (Cop.OGen.t * SGen.t) list ->
     (Cop.AGen.t * SGen.t * SGen.t) list ->
     (Cop.OGen.t * SGen.t * SGen.t) list -> unit
   val ctxt_add_ps_copy : ctxt -> t' -> morph
-  val enforce_ex_lifting_step :
-    (t' * t' * morph) list -> t' -> t' * morph
   val ctxt_enforce_ex_lifting_step :
     (t' * t' * morph) list -> ctxt -> unit
-  val enforce_unique_lifting_step :
-    (t' * t' * morph) list -> t' -> t' * morph
   val ctxt_enforce_unique_lifting_step :
     (t' * t' * morph) list -> ctxt -> unit
   val ctxt_compute_ortho : (t' * t' * morph) list -> ctxt -> unit
@@ -363,7 +347,7 @@ module type PresheafT = sig
     prod_res -> prod_res -> morph
 end
 
-module Presheaf (C : Category) (* : PresheafT with module C = C *) = struct
+module Presheaf (C : Category) : PresheafT with module C = C = struct
   (* TODO: uncomment ^ when the code is finalized. *)
   module C = C
   module Cop = CatLib (Op (C))
@@ -1046,8 +1030,8 @@ module Presheaf (C : Category) (* : PresheafT with module C = C *) = struct
           let to_add = List.map
               (fun arr ->
                  let new_o = Cop.tgt arr in
-                 let (_,_,new_s) = arr_to_map' psA arr s in
-                 let (_,_,new_t) = arr_to_map' psB arr t in
+                 let new_s = arr_to_map' psA arr s in
+                 let new_t = arr_to_map' psB arr t in
                  (new_o,new_s,new_t)
               )
               arrs
@@ -1131,44 +1115,14 @@ module Presheaf (C : Category) (* : PresheafT with module C = C *) = struct
 
   (** build missing elements for current elements and arrow generators. *)
   (* note: it preserves the *-to-1 property. *)
-  let expand_presheaf_one_step (ps : t') =
-    let bindings = OMap.bindings !(ps.elts) in
-    let start_nodes = List.concat @@ List.map
-        (fun (o,s) ->
-           List.map (fun el -> (o,el)) @@ Utils.seq_to_list @@ SSet.to_seq s
-        )
-        bindings
-    in
-    let amap = raw_to_assoc_mappings !(ps.maps) in
-    let built_nodes = ref [] in
-    List.iter (fun (o,el) ->
-      let arrs = Cop.arr_from o in
-      (* we iterate to build elements for mappings that do not already exist *)
-      List.iter (fun arr -> 
-          let target_o = Cop.tgt arr in
-          match assoc_arr_to_map_opt amap arr el with
-          | Some _ -> ()
-          | None -> begin
-              let target_el = SGen.fresh_gen (SGen.to_name el ^ ";" ^ Cop.AGen.to_name arr) in
-              add_el' ps target_o target_el;
-              add_map' ps arr el target_el;
-              built_nodes := (target_o,target_el) :: !built_nodes
-              (** TODO: should we keep track of new mappings with a built_mappings? *)
-            end
-        ) arrs
-      ) start_nodes;
-    !built_nodes
-
-  (* ctxt version of expand_presheaf_one_step *)
   let ctxt_expand_presheaf_one_step (ctxt : ctxt) =
-    let amap = raw_to_assoc_mappings !(ctxt.ps.maps) in
     ps_foreach_oelt ctxt.ps
       (fun (o,el) ->
       let arrs = Cop.arr_from o in
       (* we iterate to build elements for mappings that do not already exist *)
-      List.iter (fun arr -> 
+      List.iter (fun arr ->
           let target_o = Cop.tgt arr in
-          match assoc_arr_to_map_opt amap arr el with
+          match arr_to_map_opt' (ctxt_get_ps ctxt) arr el with
           | Some _ -> ()
           | None -> begin
               let target_el = SGen.fresh_gen (SGen.to_name el ^ ";" ^ Cop.AGen.to_name arr) in
@@ -1179,15 +1133,6 @@ module Presheaf (C : Category) (* : PresheafT with module C = C *) = struct
         ) arrs)
 
   (* generate a correct presheaf w.r.t the *-to-1 property and the equations of the category. *)
-  let rec expand_presheaf_interleaved (ps : t') =
-    let res1 = expand_presheaf_one_step ps in
-    let res2 = enforce_equations_one_step ps in
-    let res3 = enforce_many_to_one ps in
-    if (res1 <> [] || res2 || res3 ) then
-      (ignore @@ expand_presheaf_interleaved ps ; true)
-    else
-      false
-
   let rec ctxt_presheaf_interleaved (ctxt : ctxt) =
     let old_rev = ctxt_get_rev ctxt in
     ctxt_expand_presheaf_one_step ctxt ;
@@ -1199,25 +1144,17 @@ module Presheaf (C : Category) (* : PresheafT with module C = C *) = struct
     else
       ()
 
-
   (** check the existing commutativity conditions on a presheaf morphism. *)
   (* the target ps must be sufficiently expanded (to be precised). *)
   (* *-to-1 is assumed for m. *)
   let check_morph' (psA : t') (psB : t') (m : (Cop.OGen.t * SGen.t * SGen.t) list) =
     try
-      let mapA = raw_to_assoc_mappings !(psA.maps) in
-      let mapB = raw_to_assoc_mappings !(psB.maps) in
-      let aassoc = List.map (fun o -> (o,Cop.arr_from o)) Cop.objects in
-      let oamap = OMap.of_seq @@ Utils.list_to_seq aassoc in
       List.iter
         (fun (o,el_s,el_t) ->
-           let arrows = match OMap.find_opt o oamap with
-             | None -> []
-             | Some l -> l
-           in
+           let arrows = Cop.arr_from o in
            List.iter
              (fun arr ->
-                let im11 = AEMap.find_opt (arr,el_s) mapA in
+                let im11 = arr_to_map_opt' psA arr el_s in
                 let im12 = Option.bind
                     im11
                     (fun el ->
@@ -1232,7 +1169,7 @@ module Presheaf (C : Category) (* : PresheafT with module C = C *) = struct
                 | None -> ()
                 | Some el1 ->
                   begin
-                    let im2 = AEMap.find_opt (arr,el_t) mapB in
+                    let im2 = arr_to_map_opt' psB arr el_t in
                     match im2 with
                     | None -> raise Stdlib.Exit
                     | Some el2 ->
