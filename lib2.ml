@@ -363,7 +363,7 @@ module type PresheafT = sig
     prod_res -> prod_res -> morph
 end
 
-module Presheaf (C : Category) : PresheafT with module C = C = struct
+module Presheaf (C : Category) (* : PresheafT with module C = C *) = struct
   (* TODO: uncomment ^ when the code is finalized. *)
   module C = C
   module Cop = CatLib (Op (C))
@@ -680,17 +680,22 @@ module Presheaf (C : Category) : PresheafT with module C = C = struct
     Cop.PathId o -> (fun x -> x) (** todo: check that the elements are in the good set *)
     | Cop.PathMult p' -> path'_to_map ps p'
 
-  let assoc_arr_to_map_opt (m : SGen.t AEMap.t) arr el =
-    AEMap.find_opt (arr,el) m
+  let rec path'_to_map' (ps : t') = function
+    Cop.PathOne a -> arr_to_map' ps a
+    | Cop.PathSucc (a,path) -> (fun x -> arr_to_map' ps a (path'_to_map' ps path x))
 
-  let rec assoc_path'_to_map_opt (m : SGen.t AEMap.t) = function
-    Cop.PathOne a -> assoc_arr_to_map_opt m a
+  let path_to_map' (ps : t') = function
+    Cop.PathId o -> (fun x -> x) (** todo: check that the elements are in the good set *)
+    | Cop.PathMult p' -> path'_to_map' ps p'
+
+  let rec path'_to_map_opt' (ps : t') = function
+    Cop.PathOne a -> arr_to_map_opt' ps a
     | Cop.PathSucc (a,path) ->
-      (fun x -> Option.bind (assoc_arr_to_map_opt m a x) (assoc_path'_to_map_opt m path))
+      (fun x -> Option.bind (arr_to_map_opt' ps a x) (path'_to_map_opt' ps path))
 
-  let assoc_path_to_map_opt (m : SGen.t AEMap.t) = function
+  let path_to_map_opt' (ps : t') = function
     Cop.PathId o -> (fun x -> Some x) (** TODO: check that the elements are in the good set *)
-    | Cop.PathMult p' -> assoc_path'_to_map_opt m p'
+    | Cop.PathMult p' -> path'_to_map_opt' ps p'
 
   let add_el (ps : t) (o : Cop.OGen.t) (el : SGen.t) =
     let old_set = match OMap.find_opt o !(ps.elts) with
@@ -925,61 +930,23 @@ module Presheaf (C : Category) : PresheafT with module C = C = struct
   let ctxt_equalize_elts ctxt o el1 el2 =
     ctxt_equalize_elts' ctxt o el1 [el2]
 
-  (** compute the equalization of several pairs at once, together with a (partial) projection map. **)
-  (* the mappins in the map contains the elements changed by the equalization, but no the untouched elements. *)
-  (* convention: lhs gets the priority on rhs. *)
-  let compute_pairs_equalization (ps : t') pairs_l =
-    let remaps = ref [] in
-    let rec aux = function
-      | [] -> !remaps
-      | (o,l,r) :: q when l = r -> aux q
-      | (o,l,r) :: q ->
-        begin
-          (* Format.printf "equalize_elts %s = %s@." (SGen.to_name l) (SGen.to_name r); *)
-          equalize_elts ps o l r;
-          (* TODO: find something more efficient than multiple calls to equalize_elts. *)
-          let conv = function
-            | x when x = r -> l
-            | x -> x
-          in
-          remaps := List.map
-                      (fun (o,el_s,el_t) -> (o,el_s,conv el_t))
-                      !remaps ;
-          remaps := (o,r,l) :: !remaps ;
-          aux @@ List.map
-            (fun (o,a,b) -> (o,conv a,conv b))
-            q
-        end
-    in
-    ref (aux pairs_l)
-
-
   (** find parallel mappings in a presheaf. *)
   (* typically called after a function like equalize_elts which might create new mappings. *)
   (* one should call equalize_elts on the resulting mappings in order to get a *-to-1 presheaf. *)
   let find_parallel_maps (ps : t') =
-    let mappings = !(ps.maps) in
-    let module EAMap = Map.Make(struct type t = SGen.t * Cop.AGen.t let compare = compare end) in
-    let assocs = ref EAMap.empty in
-    List.iter
-      (fun (el_s,arr,el_t) ->
-         assocs := EAMap.update (el_s,arr)
-             (function
-                 None -> Some [el_t]
-               | Some l -> Some (el_t :: l)
-             )
-             !assocs
-      )
-      mappings;
-    let filtered_assocs = EAMap.filter
-      (fun _ -> function
-        | [] -> failwith "an unexpected case appended in find_parallel_maps"
-        | [a] -> false
-        | _ -> true
-      )
-      !assocs
-    in
-    Utils.seq_to_list @@ EAMap.to_seq filtered_assocs
+    let res = ref [] in
+    ps_foreach_oelt ps
+      (fun (o,el) ->
+         let arrs = Cop.arr_from o in
+         List.iter
+           (fun arr ->
+              match AEMap.find_opt (arr,el) !(ps.maps) with
+              | Some l when List.compare_length_with l 1 > 0 -> Utils.tell res ((el,arr),l)
+              | _ -> ()
+           )
+           arrs
+      );
+    !res
 
   let ctxt_find_parallel_maps ctxt =
     find_parallel_maps ctxt.ps
@@ -1021,18 +988,17 @@ module Presheaf (C : Category) : PresheafT with module C = C = struct
       | None -> SSet.empty
       | Some s -> s
     in
-    let amap = raw_to_assoc_mappings !(ps.maps) in
     let res = ref [] in
     SSet.iter
       (fun el ->
-         let oel1 = assoc_path_to_map_opt amap p1 el in
-         let oel2 = assoc_path_to_map_opt amap p2 el in
+         let oel1 = path_to_map_opt' ps p1 el in
+         let oel2 = path_to_map_opt' ps p2 el in
          let otgt = Cop.ptgt p1 in
          match (oel1,oel2) with
          | (Some el1,Some el2) when el1 <> el2 -> res := (otgt,el1,el2) :: !res
          | _ -> ()
       )
-      elts ;
+      elts;
     Utils.list_remove_duplicate compare !res
 
   let ctxt_compute_equation_pairs ctxt (p1,p2) =
