@@ -858,19 +858,6 @@ module Presheaf (C : Category) : PresheafT with module C = C = struct
   (* convention: lhs gets the priority on rhs. *)
   (* *-to-one mapping property might be lost during the process *)
   let equalize_elts' (ps : t') o el1 els_l =
-    remove_elt_stupid' ps o els_l;
-    let old_mappings = !(ps.maps) in
-    let conv = function
-      | el when List.mem el els_l -> el1 (* TODO: a Set would be more efficient for mem *)
-      | el -> el
-    in
-    let new_mappings = List.map
-        (fun (el_s,arr,el_t) -> (conv el_s,arr,conv el_t))
-        old_mappings
-    in
-    ps.maps := Utils.list_remove_duplicate compare new_mappings
-
-  let equalize_elts' (ps : t') o el1 els_l =
     let new_maps = ref [] in
     let conv = function
       | el when List.mem el els_l -> el1 (* TODO: a Set would be more efficient for mem *)
@@ -1407,11 +1394,11 @@ module Presheaf (C : Category) : PresheafT with module C = C = struct
            s
       )
       oelts;
-    List.iter
+    ps_foreach_map
+      psB
       (fun (el_s,arr,el_t) ->
          add_map' psB' arr (morph_img mBB' el_s) (morph_img mBB' el_t)
-      )
-      !(psB.maps);
+      );
     (psB',mBB')
 
   let ps_make_copy psB =
@@ -1439,40 +1426,6 @@ module Presheaf (C : Category) : PresheafT with module C = C = struct
         !l
     in
     ref res
-
-  (** add elements and maps to a presheaf and equalize some elements.**)
-  (* one should be careful about the freshness of the copied elements (already
-     the source of several bugs). *)
-  let ps_add_unify_construction psX new_elts new_maps new_equalities =
-    let (psX',mXX') = ps_make_renamed_copy psX (fun o el -> SGen.to_name el) in
-    (* TODO: reconsider not doing a copy here ^ *)
-    (* indeed, why psX should be copied and not new_elts for ex. ? *)
-    let new_equalities' = List.map
-        (fun (o,el_s,el_t) ->
-           let el_s' = match morph_img_opt mXX' o el_s with
-             | None -> el_s
-             | Some u -> u
-           in
-           let el_t' = match morph_img_opt mXX' o el_t with
-             | None -> el_t
-             | Some u -> u
-           in
-           (o,el_s',el_t')
-        )
-        new_equalities in
-    List.iter
-      (fun (o,new_el) ->
-         add_el' psX' o new_el
-      )
-      new_elts;
-    List.iter
-      (fun (arr,el_s,el_t) ->
-         add_map' psX' arr el_s el_t
-      )
-      new_maps;
-    let mX'X'' = compute_pairs_equalization psX' new_equalities' in
-    let mXX'' = morph_comp_with_partial_r mXX' mX'X'' in
-    (psX',mXX'')
 
   (* WARNING: no copy made for the ctxt version. *)
   let ctxt_add_unify_construction ctxt new_elts new_maps new_equalities =
@@ -1502,58 +1455,6 @@ module Presheaf (C : Category) : PresheafT with module C = C = struct
       ) ;
     ctxt_add_unify_construction ctxt !new_elts !new_maps [] ;
     m
-
-
-  (** step-enforce the existence of lifting w.r.t a list of ortho. maps. **)
-  (* returns (X',m : X -> X)*)
-  (* breaks *-to-1 prop (SF: but in a weak sense). *)
-  (* tested in ex_pairs.ml. *)
-  let enforce_ex_lifting_step ortho_maps psX =
-    let new_elts = ref [] in
-    let new_maps = ref [] in
-    let new_equations = ref [] in
-    let tell_new_elt (o,elt) =
-      new_elts := (o,elt) :: !new_elts
-    in
-    let tell_new_map (arr,el_s,el_t) =
-      new_maps := (arr,el_s,el_t) :: !new_maps
-    in
-    let tell_new_equation (o,el1,el2) =
-      new_equations := (o,el1,el2) :: !new_equations
-    in
-    List.iter
-      (fun (psA,psB,mF) ->
-         let mAtoX_l = compute_ps_morphs psA psX in
-         let morphs_and_liftings = List.map
-             (fun mAtoX ->
-                let liftings = compute_ps_liftings psA psB mF psX mAtoX in
-                (mAtoX,liftings)
-             )
-             mAtoX_l
-         in
-         let morphs_no_lifting = List.filter_map
-             (function
-               | (f,[]) -> Some f
-               | _ -> None)
-             morphs_and_liftings
-         in
-         List.iter
-           (fun mG ->
-              let rename_fun o el = "lift("^ SGen.to_name el ^")" in
-              let (psB',mBB') = ps_make_renamed_copy psB rename_fun in
-              ps_foreach_oelt psB' tell_new_elt;
-              ps_foreach_map psB' (fun (el_s,arr,el_t) -> tell_new_map (arr,el_s,el_t));
-              ps_foreach_oelt psA (fun (o,elA) ->
-                  let elB = morph_img mF elA in
-                  let elB' = morph_img mBB' elB in
-                  let elX = morph_img mG elA in
-                  tell_new_equation (o,elX,elB')
-                )
-           )
-           morphs_no_lifting
-      )
-      ortho_maps;
-    ps_add_unify_construction psX !new_elts !new_maps !new_equations
 
   let ctxt_enforce_ex_lifting_step ortho_maps (ctxt : ctxt) =
     let new_elts = ref [] in
@@ -1627,56 +1528,6 @@ module Presheaf (C : Category) : PresheafT with module C = C = struct
       )
       ortho_maps;
     ctxt_add_unify_construction ctxt !new_elts !new_maps !new_equations
-
-  (** step-enforce the uniqueness of lifting w.r.t a list of ortho. maps. **)
-  (* returns (X',m : X -> X')*)
-  (* breaks *-to-1 prop (SF: but in a weak sense). *)
-  (* tested in ex_pairs.ml. *)
-  let enforce_unique_lifting_step ortho_maps psX =
-    let new_equations = ref [] in
-    let tell_new_equation (o,el1,el2) =
-      new_equations := (o,el1,el2) :: !new_equations
-    in
-    List.iter
-      (fun (psA,psB,mF) ->
-         let mAtoX_l = compute_ps_morphs psA psX in
-         let morphs_and_liftings = List.map
-             (fun mAtoX ->
-                let liftings = compute_ps_liftings psA psB mF psX mAtoX in
-                (mAtoX,liftings)
-             )
-             mAtoX_l
-         in
-         let morphs_many_liftings = List.filter_map
-             (function
-               | (f,l) when List.compare_length_with l 1 > 0 -> Some (f,l)
-               | _ -> None)
-             morphs_and_liftings
-         in
-         List.iter
-           (fun (mG,mG'_l) ->
-              ps_foreach_oelt psB
-                (fun (o,elB) ->
-                   let imgs = List.map
-                     (fun mG' ->
-                        morph_img mG' elB
-                     )
-                     mG'_l
-                   in
-                   match imgs with
-                   | [] -> failwith "Unexpected case encountered."
-                   | first_elX :: q ->
-                       List.iter
-                         (fun elX ->
-                            tell_new_equation (o,first_elX,elX)
-                         )
-                         q
-                )
-           )
-           morphs_many_liftings
-      )
-      ortho_maps ;
-    ps_add_unify_construction psX [] [] !new_equations
 
   let ctxt_enforce_unique_lifting_step ortho_maps (ctxt : ctxt) =
     let new_equations = ref [] in
