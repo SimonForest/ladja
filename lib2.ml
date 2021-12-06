@@ -250,6 +250,7 @@ module type PresheafT = sig
   val morph_img : morph -> SGen.t -> SGen.t
   val morph_img_opt : morph -> Cop.OGen.t -> SGen.t -> SGen.t option
   val morph_is_iso : t' -> t' -> morph -> bool
+  val morph_is_epi : t' -> t' -> morph -> bool
   type ctxt
   val create_ctxt : t' -> ctxt
   val ctxt_incr_rev : ctxt -> unit
@@ -314,7 +315,7 @@ module type PresheafT = sig
   val ctxt_presheaf_interleaved : ctxt -> unit
   val check_morph' :
     t' -> t' -> (Cop.OGen.t * SGen.t * SGen.t) list -> bool
-  val compute_inv_maps : 'a -> 'b -> morph -> (SGen.t * SGen.t list) list
+  val compute_inv_maps : 'a -> 'b -> morph -> ((Cop.obj_t * SGen.t) * SGen.t list) list
   val compute_ps_liftings :
     t' ->
     t' ->
@@ -405,12 +406,13 @@ module Presheaf (C : Category) : PresheafT with module C = C = struct
 
   (* more adequate type for the intermediate constructions *)
   (*TODO: maps should be a set. Otherwise, it can induce bugs here and there.*)
-  type t' = { elts : SSet.t OMap.t ref ; maps : (SGen.t * Cop.AGen.t * SGen.t) list ref }
+  type t' = { elts : SSet.t OMap.t ref ; maps :  SGen.t list AEMap.t ref ; inv_maps : SGen.t list AEMap.t ref }
 
   let ps_empty' () =
     {
       elts = ref OMap.empty ;
-      maps = ref []
+      maps = ref AEMap.empty;
+      inv_maps = ref AEMap.empty
     }
 
   let ps_foreach_oelt (ps : t') (f : (Cop.OGen.t * SGen.t) -> unit) =
@@ -423,7 +425,10 @@ module Presheaf (C : Category) : PresheafT with module C = C = struct
       !(ps.elts)
 
   let ps_foreach_map (ps : t') (f : (SGen.t * Cop.AGen.t * SGen.t) -> unit) =
-    List.iter f !(ps.maps)
+    AEMap.iter (fun (arr,el_s) l ->
+        List.iter (fun el_t -> f (el_s,arr,el_t)) l
+      )
+      !(ps.maps)
 
   let arr_to_map (ps : t) arr el =
     AEMap.find (arr,el) !(ps.maps)
@@ -432,11 +437,14 @@ module Presheaf (C : Category) : PresheafT with module C = C = struct
     AEMap.find_opt (arr,el) !(ps.maps)
 
   let arr_to_map' (ps : t') arr el =
-    List.find (fun (s,a,t) -> s = el && a = arr) !(ps.maps)
+    match AEMap.find (arr,el) !(ps.maps) with
+    | [] -> failwith "no image for a map."
+    | el_t :: q -> el_t
 
   let arr_to_map_opt' (ps : t') arr el =
-    List.find_opt (fun (s,a,t) -> s = el && a = arr) !(ps.maps)
-
+    match AEMap.find_opt (arr,el) !(ps.maps) with
+    | Some (el_t :: _) -> Some el_t
+    | _ -> None
 
   let print_ps_elts' (ps : t') =
     let oelts = OMap.bindings !(ps.elts) in
@@ -544,44 +552,65 @@ module Presheaf (C : Category) : PresheafT with module C = C = struct
 
   (** Tell whether a morphism is a weak epi, in the sense that every element of
      B is below an element in the image of F. *)
-  let morph_is_weak_epi (psA : t') (psB : t') (mF : morph) : bool =
-    let imgs = ref [] in
+  (* TODO: add the check that every map in B is image of one in A. Otherwise,
+     the simplification for weak epi orth morphism will not be correct. *)
+  (* let morph_is_weak_epi (psA : t') (psB : t') (mF : morph) : bool =
+   *   let imgs = ref [] in
+   *   ps_foreach_oelt psA
+   *     (fun (o,elA) ->
+   *        let elB = morph_img mF elA in
+   *        imgs := (o,elB) :: !imgs
+   *     ) ;
+   *   let done_els = ref SSet.empty in
+   *   let rec aux = function
+   *     | [] ->
+   *       begin
+   *         let objBs = ref SSet.empty in
+   *         ps_foreach_oelt psB (fun (o,elB) ->
+   *             objBs := SSet.add elB !objBs
+   *           );
+   *         if SSet.is_empty (SSet.diff !objBs !done_els) then
+   *           true
+   *         else
+   *           false
+   *       end
+   *     | (o,elB) :: q when SSet.mem elB !done_els -> aux q
+   *     | (o,elB) :: q ->
+   *       begin
+   *         done_els := SSet.add elB !done_els;
+   *         let arrs = Cop.arr_from o in
+   *         let next = ref q in
+   *         List.iter
+   *           (fun arr ->
+   *              let o_target = Cop.tgt arr in
+   *              match arr_to_map_opt' psB arr elB with
+   *              | None -> ()
+   *              | Some (_,_,other_elB) -> next := (o_target,other_elB) :: !next
+   *           )
+   *           arrs;
+   *         aux !next
+   *       end
+   *   in
+   *   aux !imgs *)
+
+  let morph_is_epi (psA : t') (psB : t') (mF : morph) : bool =
+    let imgs = ref SSet.empty in
     ps_foreach_oelt psA
       (fun (o,elA) ->
          let elB = morph_img mF elA in
-         imgs := (o,elB) :: !imgs
+         imgs := SSet.add elB !imgs
       ) ;
-    let done_els = ref SSet.empty in
-    let rec aux = function
-      | [] ->
-        begin
-          let objBs = ref SSet.empty in
-          ps_foreach_oelt psB (fun (o,elB) ->
-              objBs := SSet.add elB !objBs
-            );
-          if SSet.is_empty (SSet.diff !objBs !done_els) then
-            true
-          else
-            false
-        end
-      | (o,elB) :: q when SSet.mem elB !done_els -> aux q
-      | (o,elB) :: q ->
-        begin
-          done_els := SSet.add elB !done_els;
-          let arrs = Cop.arr_from o in
-          let next = ref q in
-          List.iter
-            (fun arr ->
-               let o_target = Cop.tgt arr in
-               match arr_to_map_opt' psB arr elB with
-               | None -> ()
-               | Some (_,_,other_elB) -> next := (o_target,other_elB) :: !next
-            )
-            arrs;
-          aux !next
-        end
-    in
-    aux !imgs
+    let objBs = ref SSet.empty in
+    ps_foreach_oelt psB (fun (o,elB) ->
+        objBs := SSet.add elB !objBs
+      );
+    let rem = SSet.diff !objBs !imgs in
+    SSet.iter (fun el -> fpf "%s, " (SGen.to_name el)) rem;
+    if SSet.is_empty (SSet.diff !objBs !imgs) then
+      true
+    else
+      false
+        (* TODO: check surjectivity of inner maps otherwise it is wrong! *)
 
   type ctxt = {
     init_elts : SSet.t OMap.t ; (* the initial elements from which the first presheaf was made of. *)
@@ -736,23 +765,96 @@ module Presheaf (C : Category) : PresheafT with module C = C = struct
   let add_map (ps : t) (arr : Cop.AGen.t) (el_s : SGen.t) (el_t : SGen.t) =
     ps.maps := AEMap.add (arr,el_s) el_t !(ps.maps)
 
-  (* WARNING: do no check whether a duplicate already exists *)
+  (* this add a map taking into account the chosen datastructure for t' *)
   let add_map' (ps : t') (arr : Cop.AGen.t) (el_s : SGen.t) (el_t : SGen.t) =
-    ps.maps :=  (el_s,arr,el_t) :: !(ps.maps)
+    let action = match AEMap.find_opt (arr,el_s) !(ps.maps) with
+      | None -> Some [el_t]
+      | Some l -> if List.mem el_t l then None else Some (el_t :: l)
+    in
+    match action with
+    | Some new_list ->
+      begin
+        ps.maps := AEMap.add (arr,el_s) new_list !(ps.maps);
+        let inv_new_list = match AEMap.find_opt (arr,el_t) !(ps.inv_maps) with
+          | None -> [el_s]
+          | Some l -> el_s :: l
+        in
+        ps.inv_maps := AEMap.add (arr,el_t) inv_new_list !(ps.inv_maps)
+      end
+    | _ -> ()
 
   let ctxt_add_map' (ctxt : ctxt) (arr : Cop.AGen.t) (el_s : SGen.t) (el_t : SGen.t) =
-    ctxt.ps.maps :=  (el_s,arr,el_t) :: !(ctxt.ps.maps) ;
+    add_map' ctxt.ps arr el_s el_t;
     ctxt_incr_rev ctxt
 
+  (** remove a map from a presheaf, taking care of removing the inverse map. *)
+  let remove_map' (ps : t') (arr : Cop.AGen.t) (el_s : SGen.t) (el_t : SGen.t) =
+    match AEMap.find_opt (arr,el_s) !(ps.maps) with
+    | None -> ()
+    | Some l ->
+      let (res,new_list) = List.fold_right
+          (fun el (res,new_list) ->
+             if el = el_t then
+               (true,new_list)
+             else
+               (res,el::new_list)
+          )
+          l
+          (false,[])
+      in
+      if res then
+        begin
+          ps.maps := AEMap.add (arr,el_s) new_list !(ps.maps);
+          match AEMap.find_opt (arr,el_t) !(ps.maps) with
+          | None -> failwith "unexpected case: an invariant on presheaf maps was not preserved."
+          | Some l_inv ->
+            begin
+              let new_l_inv = List.filter ((<>) el_s) l_inv in
+              ps.inv_maps := AEMap.add (arr,el_t) new_l_inv !(ps.inv_maps)
+            end
+        end
 
-  let compute_yoneda_obj (o : Cop.OGen.t) =
-    let gen = SGen.fresh_gen ("y_" ^ (Cop.OGen.to_name o)) in
-    { elts = ref (OMap.of_seq @@ Seq.return (o, SSet.singleton gen)) ; maps = ref [] }
+  let remove_elt_and_its_maps (ps : t') o el =
+    let arrs = Cop.arr_from o in
+    List.iter
+      (fun arr ->
+         let elts = match AEMap.find_opt (arr,el) !(ps.maps) with
+           | None -> []
+           | Some l -> l
+         in
+         List.iter
+           (fun el_t ->
+              remove_map' ps arr el el_t
+           )
+           elts
+      )
+      arrs;
+    let arrs = Cop.arr_to o in
+    List.iter
+      (fun arr ->
+         let elts = match AEMap.find_opt (arr,el) !(ps.inv_maps) with
+           | None -> []
+           | Some l -> l
+         in
+         List.iter
+           (fun el_s ->
+              remove_map' ps arr el_s el
+           )
+           elts
+      )
+      arrs;
+    remove_elt_stupid ps o el
+
+
+  (* let compute_yoneda_obj (o : Cop.OGen.t) =
+   *   let gen = SGen.fresh_gen ("y_" ^ (Cop.OGen.to_name o)) in
+   *   { elts = ref (OMap.of_seq @@ Seq.return (o, SSet.singleton gen)) ; maps = ref [] } *)
 
   (* IDENTIFY ELEMENTS AND PRESERVE *-TO-ONE MAPPINGS *)
   (* low-level *)
 
-  (** make two elements the same in the presheaf. Also update the mappings adequately*)
+  (** make several elements equal to one in the presheaf. Also update the
+     mappings adequately*)
   (* convention: lhs gets the priority on rhs. *)
   (* *-to-one mapping property might be lost during the process *)
   let equalize_elts' (ps : t') o el1 els_l =
@@ -768,26 +870,60 @@ module Presheaf (C : Category) : PresheafT with module C = C = struct
     in
     ps.maps := Utils.list_remove_duplicate compare new_mappings
 
-  let ctxt_equalize_elts' ctxt o el1 els_l =
-    let el1 = ctxt_get_rep ctxt o el1 in
-    let els_l = List.map (ctxt_get_rep ctxt o) els_l in
-    (* if List.mem el1 els_l then
-     *   Utils.warn "ctxt_equalize_elts': an element was equalized with itself."; *)
-    let els_l = List.filter ((<>) el1) els_l in
-    if List.compare_length_with els_l 0 > 0 then
-      ctxt_incr_rev ctxt ;
-    let ps = ctxt.ps in
-    remove_elt_stupid' ctxt.ps o els_l ;
-    let old_mappings = !(ps.maps) in
+  let equalize_elts' (ps : t') o el1 els_l =
+    let new_maps = ref [] in
     let conv = function
       | el when List.mem el els_l -> el1 (* TODO: a Set would be more efficient for mem *)
       | el -> el
     in
-    let new_mappings = List.map
-        (fun (el_s,arr,el_t) -> (conv el_s,arr,conv el_t))
-        old_mappings
-    in
-    ps.maps := Utils.list_remove_duplicate compare new_mappings ;
+    List.iter
+      (fun el_to_suppr ->
+         let arrs = Cop.arr_from o in
+         List.iter
+           (fun arr ->
+              let els_target = match AEMap.find_opt (arr,el_to_suppr) !(ps.maps) with
+                | None -> []
+                | Some l -> l
+              in
+              List.iter
+                (fun el_target ->
+                   Utils.tell new_maps (o,arr,el1,conv el_target)
+                )
+                els_target
+           )
+           arrs;
+         let arrs = Cop.arr_to o in
+         List.iter
+           (fun arr ->
+              let els_source = match AEMap.find_opt (arr,el_to_suppr) !(ps.inv_maps) with
+                | None -> []
+                | Some l -> l
+              in
+              let o_source = Cop.src arr in
+              List.iter
+                (fun el_source ->
+                   Utils.tell new_maps (o_source,arr,conv el_source,el1)
+                )
+                els_source
+           )
+           arrs;
+         remove_elt_and_its_maps ps o el_to_suppr
+      )
+      els_l;
+    List.iter
+      (fun (o,arr,el_s,el_t) ->
+         add_map' ps arr el_s el_t
+      )
+      !new_maps
+
+  let ctxt_equalize_elts' ctxt o el1 els_l =
+    let el1 = ctxt_get_rep ctxt o el1 in
+    let els_l = List.map (ctxt_get_rep ctxt o) els_l in
+    let els_l = List.filter ((<>) el1) els_l in
+    if List.compare_length_with els_l 0 > 0 then
+      ctxt_incr_rev ctxt ;
+    let ps = ctxt_get_ps ctxt in
+    equalize_elts' ps o el1 els_l;
     List.iter
       (fun el_suppr ->
          ctxt_set_new_rep ctxt o el_suppr el1
@@ -1164,12 +1300,15 @@ module Presheaf (C : Category) : PresheafT with module C = C = struct
   (* compute an association list whose elements are (b,[a1,...,an]) where ai is
      a preimage of b by f *)
   let compute_inv_maps psA psB (mf : morph) =
-    let module EMap = Map.Make(SGen) in
-    let res = ref EMap.empty in
+    let module OEMap = Map.Make(struct
+        type t = Cop.obj_t * SGen.t
+        let compare = compare
+      end) in
+    let res = ref OEMap.empty in
     List.iter
-      (fun (_,el_s,el_t) ->
-         res := EMap.update
-           el_t
+      (fun (o,el_s,el_t) ->
+         res := OEMap.update
+           (o,el_t)
            (function
              | None -> Some [el_s]
              | Some u -> Some (el_s :: u)
@@ -1177,7 +1316,7 @@ module Presheaf (C : Category) : PresheafT with module C = C = struct
            !res
       )
       !mf;
-    EMap.bindings !res
+    OEMap.bindings !res
 
   (* compute the liftings of g : A -> X along f : A -> B *)
   let compute_ps_liftings (psA : t') (psB : t') (mf : morph) (psX : t') (mg : morph) =
@@ -1196,7 +1335,7 @@ module Presheaf (C : Category) : PresheafT with module C = C = struct
       | oelt :: next_oelts ->
         begin
           let (o,b) = oelt in
-          let invb = match Utils.list_find_opt (fun (b',l') -> b = b') invmap with
+          let invb = match Utils.list_find_opt (fun ((_,b'),l') -> b = b') invmap with
             | None -> []
             | Some (b',l') -> l'
           in
@@ -1433,35 +1572,58 @@ module Presheaf (C : Category) : PresheafT with module C = C = struct
       (fun i (psA,psB,mF) ->
          fpf "ortho map n°%d@." i;
          let mAtoX_l = compute_ps_morphs psA ctxt.ps in
-         let morphs_and_liftings = List.map
-             (fun mAtoX ->
-                let liftings = compute_ps_liftings psA psB mF ctxt.ps mAtoX in
-                (mAtoX,liftings)
-             )
-             mAtoX_l
-         in
-         fpf "morph and liftings computed. Total: %d@." (List.length morphs_and_liftings);
-         let morphs_no_lifting = List.filter_map
-             (function
-               | (f,[]) -> Some f
-               | _ -> None)
-             morphs_and_liftings
-         in
-         List.iter
-           (fun mG ->
-              fpf "morph computed@.";
-              let rename_fun o el = "lift("^ SGen.to_name el ^"_" ^ string_of_int (fresh ()) ^ ")" in
-              let (psB',mBB') = ps_make_renamed_copy psB rename_fun in
-              ps_foreach_oelt psB' tell_new_elt;
-              ps_foreach_map psB' (fun (el_s,arr,el_t) -> tell_new_map (arr,el_s,el_t));
-              ps_foreach_oelt psA (fun (o,elA) ->
-                  let elB = morph_img mF elA in
-                  let elB' = morph_img mBB' elB in
-                  let elX = morph_img mG elA in
-                  tell_new_equation (o,elX,elB')
-                )
-           )
-           morphs_no_lifting;
+         match morph_is_epi psA psB mF with
+         | true ->
+           begin
+             List.iter
+               (fun mAtoX ->
+                  let invmap = compute_inv_maps psA psB mF in
+                  List.iter
+                    (fun ((o,elB),elA_l) ->
+                       let firstAr = ref None in
+                       List.iter
+                         (fun elA ->
+                            match !firstAr with
+                            | None -> firstAr := Some elA
+                            | Some firstA -> tell_new_equation (o,morph_img mAtoX firstA,morph_img mAtoX elA)
+                         )
+                         elA_l
+                    )
+                    invmap)
+               mAtoX_l
+           end
+         | false ->
+             begin
+               let morphs_and_liftings = List.map
+                   (fun mAtoX ->
+                      let liftings = compute_ps_liftings psA psB mF ctxt.ps mAtoX in
+                      (mAtoX,liftings)
+                   )
+                   mAtoX_l
+               in
+               fpf "morph and liftings computed. Total: %d@." (List.length morphs_and_liftings);
+               let morphs_no_lifting = List.filter_map
+                   (function
+                     | (f,[]) -> Some f
+                     | _ -> None)
+                   morphs_and_liftings
+               in
+               List.iter
+                 (fun mG ->
+                    fpf "morph computed@.";
+                    let rename_fun o el = "lift("^ SGen.to_name el ^"_" ^ string_of_int (fresh ()) ^ ")" in
+                    let (psB',mBB') = ps_make_renamed_copy psB rename_fun in
+                    ps_foreach_oelt psB' tell_new_elt;
+                    ps_foreach_map psB' (fun (el_s,arr,el_t) -> tell_new_map (arr,el_s,el_t));
+                    ps_foreach_oelt psA (fun (o,elA) ->
+                        let elB = morph_img mF elA in
+                        let elB' = morph_img mBB' elB in
+                        let elX = morph_img mG elA in
+                        tell_new_equation (o,elX,elB')
+                      )
+                 )
+                 morphs_no_lifting
+             end
       )
       ortho_maps;
     ctxt_add_unify_construction ctxt !new_elts !new_maps !new_equations
@@ -1523,44 +1685,49 @@ module Presheaf (C : Category) : PresheafT with module C = C = struct
     in
     List.iteri
       (fun i (psA,psB,mF) ->
-         (* Format.printf "orthogonal morph %d@." i; *)
-         let mAtoX_l = compute_ps_morphs psA ctxt.ps in
-         let morphs_and_liftings = List.map
-             (fun mAtoX ->
-                (* Format.printf "morph found:@.";
-                 * print_morph mAtoX; *)
-                let liftings = compute_ps_liftings psA psB mF ctxt.ps mAtoX in
-                (mAtoX,liftings)
-             )
-             mAtoX_l
-         in
-         let morphs_many_liftings = List.filter_map
-             (function
-               | (f,l) when List.compare_length_with l 1 > 0 -> Some (f,l)
-               | _ -> None)
-             morphs_and_liftings
-         in
-         List.iter
-           (fun (mG,mG'_l) ->
-              ps_foreach_oelt psB
-                (fun (o,elB) ->
-                   let imgs = List.map
-                     (fun mG' ->
-                        morph_img mG' elB
-                     )
-                     mG'_l
-                   in
-                   match imgs with
-                   | [] -> failwith "Unexpected case encountered."
-                   | first_elX :: q ->
-                       List.iter
-                         (fun elX ->
-                            tell_new_equation (o,first_elX,elX)
-                         )
-                         q
-                )
-           )
-           morphs_many_liftings
+         match morph_is_epi psA psB mF with
+         | true -> (fpf "m %d is epi@." i)
+         | false ->
+           begin
+             (* Format.printf "orthogonal morph %d@." i; *)
+             let mAtoX_l = compute_ps_morphs psA ctxt.ps in
+             let morphs_and_liftings = List.map
+                 (fun mAtoX ->
+                    (* Format.printf "morph found:@.";
+                     * print_morph mAtoX; *)
+                    let liftings = compute_ps_liftings psA psB mF ctxt.ps mAtoX in
+                    (mAtoX,liftings)
+                 )
+                 mAtoX_l
+             in
+             let morphs_many_liftings = List.filter_map
+                 (function
+                   | (f,l) when List.compare_length_with l 1 > 0 -> Some (f,l)
+                   | _ -> None)
+                 morphs_and_liftings
+             in
+             List.iter
+               (fun (mG,mG'_l) ->
+                  ps_foreach_oelt psB
+                    (fun (o,elB) ->
+                       let imgs = List.map
+                           (fun mG' ->
+                              morph_img mG' elB
+                           )
+                           mG'_l
+                       in
+                       match imgs with
+                       | [] -> failwith "Unexpected case encountered."
+                       | first_elX :: q ->
+                         List.iter
+                           (fun elX ->
+                              tell_new_equation (o,first_elX,elX)
+                           )
+                           q
+                    )
+               )
+               morphs_many_liftings
+           end
       )
       ortho_maps ;
     ctxt_add_unify_construction ctxt [] [] !new_equations
@@ -1583,56 +1750,6 @@ module Presheaf (C : Category) : PresheafT with module C = C = struct
    *     else
    *       b3 := true;
    *   done; *)
-
-  let ctxt_enforce_ex_unique_lifting_step ortho_maps (ctxt : ctxt) =
-    let new_elts = ref [] in
-    let new_maps = ref [] in
-    let new_equations = ref [] in
-    let tell_new_elt (o,elt) =
-      new_elts := (o,elt) :: !new_elts
-    in
-    let tell_new_map (arr,el_s,el_t) =
-      new_maps := (arr,el_s,el_t) :: !new_maps
-    in
-    let tell_new_equation (o,el1,el2) =
-      new_equations := (o,el1,el2) :: !new_equations
-    in
-    List.iteri
-      (fun i (psA,psB,mF) ->
-         fpf "ortho map n°%d@." i;
-         let mAtoX_l = compute_ps_morphs psA ctxt.ps in
-         let morphs_and_liftings = List.map
-             (fun mAtoX ->
-                let liftings = compute_ps_liftings psA psB mF ctxt.ps mAtoX in
-                (mAtoX,liftings)
-             )
-             mAtoX_l
-         in
-         fpf "morph and liftings computed. Total: %d@." (List.length morphs_and_liftings);
-         let morphs_no_lifting = List.filter_map
-             (function
-               | (f,[]) -> Some f
-               | _ -> None)
-             morphs_and_liftings
-         in
-         List.iter
-           (fun mG ->
-              fpf "morph computed@.";
-              let rename_fun o el = "lift("^ SGen.to_name el ^"_" ^ string_of_int (fresh ()) ^ ")" in
-              let (psB',mBB') = ps_make_renamed_copy psB rename_fun in
-              ps_foreach_oelt psB' tell_new_elt;
-              ps_foreach_map psB' (fun (el_s,arr,el_t) -> tell_new_map (arr,el_s,el_t));
-              ps_foreach_oelt psA (fun (o,elA) ->
-                  let elB = morph_img mF elA in
-                  let elB' = morph_img mBB' elB in
-                  let elX = morph_img mG elA in
-                  tell_new_equation (o,elX,elB')
-                )
-           )
-           morphs_no_lifting;
-      )
-      ortho_maps;
-    ctxt_add_unify_construction ctxt !new_elts !new_maps !new_equations
 
   let rec ctxt_compute_ortho ortho_maps (ctxt : ctxt) =
     let old_rev = ctxt_get_rev ctxt in

@@ -212,6 +212,8 @@ let cab = Ps.SGen.fresh_gen_with_priority "a*b" 3
 let cbc = Ps.SGen.fresh_gen_with_priority "b*c" 6
 let pcabc= Ps.SGen.fresh_gen_with_priority "(a*b,c)" 7
 let pacbc= Ps.SGen.fresh_gen_with_priority "(a,b*c)" 8
+let ccabc= Ps.SGen.fresh_gen_with_priority "(a*b)*c" 9
+let cacbc= Ps.SGen.fresh_gen_with_priority "a*(b*c)" 10
 
 let a' = Ps.SGen.fresh_gen_with_priority "a" 1
 let b' = Ps.SGen.fresh_gen_with_priority "b" 2
@@ -245,6 +247,10 @@ let psA =
   Ps.add_el' p Cat.C12 pacbc;
   Ps.add_map' p Cat.PiL pacbc a;
   Ps.add_map' p Cat.PiR pacbc cbc;
+  Ps.add_el' p Cat.C1 ccabc;
+  Ps.add_el' p Cat.C1 cacbc;
+  Ps.add_map' p Cat.Comp pcabc ccabc;
+  Ps.add_map' p Cat.Comp pacbc cacbc;
   p
 
 let psB =
@@ -284,6 +290,8 @@ let psf =
   Ps.morph_add m Cat.C1 cbc cbc';
   Ps.morph_add m Cat.C12 pcabc pcabc';
   Ps.morph_add m Cat.C12 pacbc pacbc';
+  Ps.morph_add m Cat.C1 ccabc cabc';
+  Ps.morph_add m Cat.C1 cacbc cabc';
   m
 
 let o_assoc = (psA,psB,psf)
