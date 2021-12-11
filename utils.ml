@@ -25,3 +25,14 @@ let warn s =
 
 let tell l_r e =
   l_r := e :: ! l_r
+
+(* Debugging printing functions. *)
+let debug =
+  if Params.debug_mode then
+    Format.printf
+  else
+    Format.ifprintf Format.std_formatter
+
+let ifdebug f =
+  if Params.debug_mode then
+    f ()

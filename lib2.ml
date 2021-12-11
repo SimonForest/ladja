@@ -1,7 +1,4 @@
 
-let fpf =
-  Format.printf
-
 module type OrdNamedType = sig
   type t
   val compare : t -> t -> int
@@ -794,7 +791,7 @@ module Presheaf (C : Category) : PresheafT with module C = C = struct
       if res then
         begin
           ps.maps := AEMap.add (arr,el_s) new_list !(ps.maps);
-          match AEMap.find_opt (arr,el_t) !(ps.maps) with
+          match AEMap.find_opt (arr,el_t) !(ps.inv_maps) with
           | None -> failwith "unexpected case: an invariant on presheaf maps was not preserved."
           | Some l_inv ->
             begin
@@ -1568,7 +1565,7 @@ module Presheaf (C : Category) : PresheafT with module C = C = struct
           )
           ortho_maps
       in
-      let rec aux curr_l next_l = match (curr_l,next_l) with
+      let rec aux curr_l next_l = fpf "aux happening: %d %d@." (List.length curr_l) (List.length next_l); match (curr_l,next_l) with
         | ([],[]) -> ()
         | ([],q) -> aux (List.rev q) []
         | (((omap,mAtoX,mBtoX,cod) as curr) :: q1 , q2) ->
@@ -1595,7 +1592,9 @@ module Presheaf (C : Category) : PresheafT with module C = C = struct
               end ;
                 aux q1 q2
             else
-              aux q1 (curr :: q2)
+              begin
+                aux q1 (curr :: q2)
+              end
           end
       in
       aux xo_liftings [] ;
@@ -1773,8 +1772,11 @@ module FunctorPres (S : TheoryT) (T : TheoryT) (* : FunctorPresT *) = struct
           let ctxt_imA = T.Ps.create_ctxt imA_infos.ps in
           let ctxt_imB = T.Ps.create_ctxt imB_infos.ps in
           T.Ps.ctxt_compute_ortho TargetTheory.ortho_maps ctxt_imA;
+          fpf "Computing Aortho done.@.";
           T.Ps.ctxt_compute_ortho TargetTheory.ortho_maps ctxt_imB;
+          fpf "Computing Bortho done.@.";
           let im_mF_ortho = T.Ps.ctxt_compute_ortho_map TargetTheory.ortho_maps ctxt_imA ctxt_imB im_mF in
+          fpf "Computing ortho_map done.@.";
           Format.printf "@[<v 0>Test n°%d for left adjointness:@,@[<v 2>@," (i+1);
           Format.printf "Orthogonalized source:@,";
           T.Ps.print_ps_elts' (T.Ps.ctxt_get_ps ctxt_imA);
