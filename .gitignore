@@ -1,5 +1,6 @@
 _build/*
 *.byte
 *.mli
+params.ml
 cimetiere.ml
 *.org

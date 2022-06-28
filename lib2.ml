@@ -386,7 +386,7 @@ module Presheaf (C : Category) : PresheafT with module C = C = struct
   type t =  { elts : SSet.t OMap.t ref ; maps : SGen.t AEMap.t ref }
 
   (* more adequate type for the intermediate constructions *)
-  (*TODO: maps should be a set. Otherwise, it can induce bugs here and there.*)
+  (* TODO: maps should be a set. Otherwise, it can induce bugs here and there.*)
   type t' = { elts : SSet.t OMap.t ref ; maps :  SGen.t list AEMap.t ref ; inv_maps : SGen.t list AEMap.t ref }
 
   let ps_empty' () =
@@ -438,7 +438,7 @@ module Presheaf (C : Category) : PresheafT with module C = C = struct
       )
       oelts
     ;
-    Format.printf "@]@,]@,@]"
+    Format.printf "@]@,]@]"
 
   let print_ps_maps' (ps : t') =
     Format.printf "@[<v 0>[@[<v 2>";
@@ -446,7 +446,7 @@ module Presheaf (C : Category) : PresheafT with module C = C = struct
       (fun (els,arr,elt) ->
          Format.printf "@,%s(%s) = %s" (Cop.AGen.to_name arr) (SGen.to_name els) (SGen.to_name elt)
       ) ;
-    Format.printf "@]@,]@,@]"
+    Format.printf "@]@,]@]"
 
   module OSMap = Map.Make(struct
       type t = Cop.OGen.t * SGen.t
@@ -1510,7 +1510,8 @@ module Presheaf (C : Category) : PresheafT with module C = C = struct
     ctxt_enforce_unique_lifting_step ortho_maps ctxt;
     ctxt_enforce_ex_lifting_step ortho_maps ctxt ;
     Utils.debug "after ex lifting:@.";
-    print_ps_elts' @@ ctxt_get_ps ctxt;
+    (* TODO: use a debug printer for this. *)
+    (* print_ps_elts' @@ ctxt_get_ps ctxt; *)
     ctxt_presheaf_interleaved ctxt ;
     Utils.debug "@.";
     let r_rev = ref (-1) in
@@ -1520,7 +1521,8 @@ module Presheaf (C : Category) : PresheafT with module C = C = struct
       ctxt_enforce_unique_lifting_step ortho_maps ctxt;
       ctxt_presheaf_interleaved ctxt ;
       Utils.debug "after a loop:@.";
-      print_ps_elts' @@ ctxt_get_ps ctxt;
+      (* TODO: use a debug printer for this. *)
+      (* print_ps_elts' @@ ctxt_get_ps ctxt; *)
       Utils.debug "@.";
     done ;
     if (old_rev < ctxt_get_rev ctxt) then
@@ -1778,14 +1780,16 @@ module FunctorPres (S : TheoryT) (T : TheoryT) (* : FunctorPresT *) = struct
           Utils.debug "Computing Bortho done.@.";
           let im_mF_ortho = T.Ps.ctxt_compute_ortho_map TargetTheory.ortho_maps ctxt_imA ctxt_imB im_mF in
           Utils.debug "Computing ortho_map done.@.";
-          Format.printf "@[<v 0>Test n°%d for left adjointness:@,@[<v 2>@," (i+1);
+          Format.printf "@[<v 0>Test n°%d for left adjointness:@;<0 2>@[<v 0>" (i+1);
           Format.printf "Orthogonalized source:@,";
           T.Ps.print_ps_elts' (T.Ps.ctxt_get_ps ctxt_imA);
+          Format.printf "@,";
           Format.printf "Orthogonalized target:@,";
           T.Ps.print_ps_elts' (T.Ps.ctxt_get_ps ctxt_imB);
+          Format.printf "@,";
           Format.printf "Reflected map between them:@,";
           T.Ps.print_morph (im_mF_ortho);
-          Format.printf "@]@,@]@.";
+          Format.printf "@]@,@]";
           if not @@ T.Ps.morph_is_iso (T.Ps.ctxt_get_ps ctxt_imA) (T.Ps.ctxt_get_ps ctxt_imB) im_mF_ortho then
             begin
               Format.printf "The orthogonalization map %d is not sent to an isomorphism.@." (i+1);
