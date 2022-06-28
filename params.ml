@@ -1,1 +1,1 @@
-let debug_mode = true
+let debug_mode = false

@@ -27,11 +27,11 @@ let tell l_r e =
   l_r := e :: ! l_r
 
 (* Debugging printing functions. *)
-let debug =
+let debug (type a) (arg : (a, Format.formatter, unit) format) : a=
   if Params.debug_mode then
-    Format.printf
+    Format.printf arg
   else
-    Format.ifprintf Format.std_formatter
+    Format.ifprintf Format.std_formatter arg
 
 let ifdebug f =
   if Params.debug_mode then

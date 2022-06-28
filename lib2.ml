@@ -586,7 +586,7 @@ module Presheaf (C : Category) : PresheafT with module C = C = struct
         objBs := SSet.add elB !objBs
       );
     let rem = SSet.diff !objBs !imgs in
-    SSet.iter (fun el -> fpf "%s, " (SGen.to_name el)) rem;
+    SSet.iter (fun el -> Utils.debug "%s, " (SGen.to_name el)) rem;
     if SSet.is_empty (SSet.diff !objBs !imgs) then
       true
     else
@@ -1207,14 +1207,14 @@ module Presheaf (C : Category) : PresheafT with module C = C = struct
 
   (* compute the liftings of g : A -> X along f : A -> B *)
   let compute_ps_liftings (psA : t') (psB : t') (mf : morph) (psX : t') (mg : morph) =
-    fpf "compute_ps_liftings@.";
+    Utils.debug "compute_ps_liftings@.";
     let oelts = compute_oelt_pairs psB in
     let oelts = List.sort (fun (_,l) (_,r) -> compare_with_priority l r) oelts in
-    fpf "list of oelt pairs:@.[";
+    Utils.debug "list of oelt pairs:@.[";
     List.iter (fun (o,elt) ->
-        fpf "(%s,%s)," (Cop.obj_to_name o) (SGen.to_name elt)
+        Utils.debug "(%s,%s)," (Cop.obj_to_name o) (SGen.to_name elt)
     ) oelts;
-    fpf "]@.";
+    Utils.debug "]@.";
     let invmap = compute_inv_maps psA psB mf in
     let res = ref [] in
     let rec explore next_oelts sol = match next_oelts with
@@ -1371,7 +1371,7 @@ module Presheaf (C : Category) : PresheafT with module C = C = struct
     in
     List.iteri
       (fun i (psA,psB,mF) ->
-         fpf "ortho map n°%d@." i;
+         Utils.debug "ortho map n°%d@." i;
          let mAtoX_l = compute_ps_morphs psA ctxt.ps in
          match morph_is_epi psA psB mF with
          | true ->
@@ -1402,7 +1402,7 @@ module Presheaf (C : Category) : PresheafT with module C = C = struct
                    )
                    mAtoX_l
                in
-               fpf "morph and liftings computed. Total: %d@." (List.length morphs_and_liftings);
+               Utils.debug "morph and liftings computed. Total: %d@." (List.length morphs_and_liftings);
                let morphs_no_lifting = List.filter_map
                    (function
                      | (f,[]) -> Some f
@@ -1411,7 +1411,7 @@ module Presheaf (C : Category) : PresheafT with module C = C = struct
                in
                List.iter
                  (fun mG ->
-                    fpf "morph computed@.";
+                    Utils.debug "morph computed@.";
                     let rename_fun o el = "lift("^ SGen.to_name el ^"_" ^ string_of_int (fresh ()) ^ ")" in
                     let (psB',mBB') = ps_make_renamed_copy psB rename_fun in
                     ps_foreach_oelt psB' tell_new_elt;
@@ -1437,7 +1437,7 @@ module Presheaf (C : Category) : PresheafT with module C = C = struct
     List.iteri
       (fun i (psA,psB,mF) ->
          match morph_is_epi psA psB mF with
-         | true -> (fpf "m %d is epi@." i)
+         | true -> (Utils.debug "m %d is epi@." i)
          | false ->
            begin
              (* Format.printf "orthogonal morph %d@." i; *)
@@ -1504,29 +1504,29 @@ module Presheaf (C : Category) : PresheafT with module C = C = struct
 
   let rec ctxt_compute_ortho ortho_maps (ctxt : ctxt) =
     let old_rev = ctxt_get_rev ctxt in
-    fpf "entering@.";
+    Utils.debug "entering@.";
     ctxt_presheaf_interleaved ctxt ;
-    fpf "after interleaved@.";
+    Utils.debug "after interleaved@.";
     ctxt_enforce_unique_lifting_step ortho_maps ctxt;
     ctxt_enforce_ex_lifting_step ortho_maps ctxt ;
-    fpf "after ex lifting:@.";
+    Utils.debug "after ex lifting:@.";
     print_ps_elts' @@ ctxt_get_ps ctxt;
     ctxt_presheaf_interleaved ctxt ;
-    fpf "@.";
+    Utils.debug "@.";
     let r_rev = ref (-1) in
     while (!r_rev < ctxt_get_rev ctxt) do
-      fpf "starting a loop@.";
+      Utils.debug "starting a loop@.";
       r_rev := ctxt_get_rev ctxt ;
       ctxt_enforce_unique_lifting_step ortho_maps ctxt;
       ctxt_presheaf_interleaved ctxt ;
-      fpf "after a loop:@.";
+      Utils.debug "after a loop:@.";
       print_ps_elts' @@ ctxt_get_ps ctxt;
-      fpf "@.";
+      Utils.debug "@.";
     done ;
     if (old_rev < ctxt_get_rev ctxt) then
       ctxt_compute_ortho ortho_maps ctxt
     else
-      (fpf "leaving@.")
+      (Utils.debug "leaving@.")
 
   (** compute the reflection of a map. ctxtX and ctxtY must be already orthogonalized. *)
   let ctxt_compute_ortho_map ortho_maps (ctxtX : ctxt) (ctxtY : ctxt) (m : morph) =
@@ -1549,8 +1549,8 @@ module Presheaf (C : Category) : PresheafT with module C = C = struct
            s
       )
       @@ OMap.bindings ctxtX.init_elts ;
-      let xo_liftings = List.concat @@ List.map
-          (fun ((psA,psB,mF) as omap) ->
+      let xo_liftings = List.concat @@ List.mapi
+          (fun i ((psA,psB,mF) as omap) ->
              let mAtoX_l = compute_ps_morphs psA psXo in
              List.map
                (fun mAtoX ->
@@ -1558,18 +1558,19 @@ module Presheaf (C : Category) : PresheafT with module C = C = struct
                   match liftings with
                   | [lift] ->
                     let cod = morph_codomain mAtoX in
-                    (omap,mAtoX,lift,cod)
+                    (i,omap,mAtoX,lift,cod)
                   | _ -> failwith "Unexpected case encountered."
                )
                mAtoX_l
           )
           ortho_maps
       in
-      let rec aux curr_l next_l = fpf "aux happening: %d %d@." (List.length curr_l) (List.length next_l); match (curr_l,next_l) with
+      let rec aux curr_l next_l = Utils.debug "aux happening: %d %d@." (List.length curr_l) (List.length next_l); match (curr_l,next_l) with
         | ([],[]) -> ()
         | ([],q) -> aux (List.rev q) []
-        | (((omap,mAtoX,mBtoX,cod) as curr) :: q1 , q2) ->
+        | (((i,omap,mAtoX,mBtoX,cod) as curr) :: q1 , q2) ->
           begin
+            Utils.debug "handling lifting of type %d@." i;
             if SSet.is_empty (SSet.diff cod !curr_domain) then
               let mAtoY = morph_comp mAtoX mo in
               let (psA,psB,mF) = omap in
@@ -1772,11 +1773,11 @@ module FunctorPres (S : TheoryT) (T : TheoryT) (* : FunctorPresT *) = struct
           let ctxt_imA = T.Ps.create_ctxt imA_infos.ps in
           let ctxt_imB = T.Ps.create_ctxt imB_infos.ps in
           T.Ps.ctxt_compute_ortho TargetTheory.ortho_maps ctxt_imA;
-          fpf "Computing Aortho done.@.";
+          Utils.debug "Computing Aortho done.@.";
           T.Ps.ctxt_compute_ortho TargetTheory.ortho_maps ctxt_imB;
-          fpf "Computing Bortho done.@.";
+          Utils.debug "Computing Bortho done.@.";
           let im_mF_ortho = T.Ps.ctxt_compute_ortho_map TargetTheory.ortho_maps ctxt_imA ctxt_imB im_mF in
-          fpf "Computing ortho_map done.@.";
+          Utils.debug "Computing ortho_map done.@.";
           Format.printf "@[<v 0>Test n°%d for left adjointness:@,@[<v 2>@," (i+1);
           Format.printf "Orthogonalized source:@,";
           T.Ps.print_ps_elts' (T.Ps.ctxt_get_ps ctxt_imA);
