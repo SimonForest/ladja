@@ -1181,14 +1181,14 @@ module Presheaf (C : Category) : PresheafT with module C = C = struct
 
   (* compute the liftings of g : A -> X along f : A -> B *)
   let compute_ps_liftings (psA : t') (psB : t') (mf : morph) (psX : t') (mg : morph) =
-    fpf "compute_ps_liftings@.";
+    (* fpf "compute_ps_liftings@."; *)
     let oelts = compute_oelt_pairs psB in
     let oelts = List.sort (fun (_,l) (_,r) -> compare_with_priority l r) oelts in
-    fpf "list of oelt pairs:@.[";
-    List.iter (fun (o,elt) ->
-        fpf "(%s,%s)," (Cop.obj_to_name o) (SGen.to_name elt)
-    ) oelts;
-    fpf "]@.";
+    (* fpf "list of oelt pairs:@.["; *)
+    (* List.iter (fun (o,elt) -> *)
+    (*     fpf "(%s,%s)," (Cop.obj_to_name o) (SGen.to_name elt) *)
+    (* ) oelts; *)
+    (* fpf "]@."; *)
     let invmap = compute_inv_maps psA psB mf in
     let res = ref [] in
     let rec explore next_oelts sol = match next_oelts with
@@ -1431,7 +1431,7 @@ module Presheaf (C : Category) : PresheafT with module C = C = struct
     in
     List.iteri
       (fun i (psA,psB,mF) ->
-         fpf "ortho map n°%d@." i;
+         (* fpf "ortho map n°%d@." i; *)
          let mAtoX_l = compute_ps_morphs psA ctxt.ps in
          let morphs_and_liftings = List.map
              (fun mAtoX ->
@@ -1440,7 +1440,7 @@ module Presheaf (C : Category) : PresheafT with module C = C = struct
              )
              mAtoX_l
          in
-         fpf "morph and liftings computed. Total: %d@." (List.length morphs_and_liftings);
+         (* fpf "morph and liftings computed. Total: %d@." (List.length morphs_and_liftings); *)
          let morphs_no_lifting = List.filter_map
              (function
                | (f,[]) -> Some f
@@ -1449,7 +1449,7 @@ module Presheaf (C : Category) : PresheafT with module C = C = struct
          in
          List.iter
            (fun mG ->
-              fpf "morph computed@.";
+              (* fpf "morph computed@."; *)
               let rename_fun o el = "lift("^ SGen.to_name el ^"_" ^ string_of_int (fresh ()) ^ ")" in
               let (psB',mBB') = ps_make_renamed_copy psB rename_fun in
               ps_foreach_oelt psB' tell_new_elt;
@@ -1599,7 +1599,7 @@ module Presheaf (C : Category) : PresheafT with module C = C = struct
     in
     List.iteri
       (fun i (psA,psB,mF) ->
-         fpf "ortho map n°%d@." i;
+         (* fpf "ortho map n°%d@." i; *)
          let mAtoX_l = compute_ps_morphs psA ctxt.ps in
          let morphs_and_liftings = List.map
              (fun mAtoX ->
@@ -1608,7 +1608,7 @@ module Presheaf (C : Category) : PresheafT with module C = C = struct
              )
              mAtoX_l
          in
-         fpf "morph and liftings computed. Total: %d@." (List.length morphs_and_liftings);
+         (* fpf "morph and liftings computed. Total: %d@." (List.length morphs_and_liftings); *)
          let morphs_no_lifting = List.filter_map
              (function
                | (f,[]) -> Some f
@@ -1617,7 +1617,7 @@ module Presheaf (C : Category) : PresheafT with module C = C = struct
          in
          List.iter
            (fun mG ->
-              fpf "morph computed@.";
+              (* fpf "morph computed@."; *)
               let rename_fun o el = "lift("^ SGen.to_name el ^"_" ^ string_of_int (fresh ()) ^ ")" in
               let (psB',mBB') = ps_make_renamed_copy psB rename_fun in
               ps_foreach_oelt psB' tell_new_elt;
@@ -1636,29 +1636,32 @@ module Presheaf (C : Category) : PresheafT with module C = C = struct
 
   let rec ctxt_compute_ortho ortho_maps (ctxt : ctxt) =
     let old_rev = ctxt_get_rev ctxt in
-    fpf "entering@.";
+    (* fpf "entering@."; *)
     ctxt_presheaf_interleaved ctxt ;
-    fpf "after interleaved@.";
+    (* fpf "after interleaved@."; *)
     ctxt_enforce_unique_lifting_step ortho_maps ctxt;
     ctxt_enforce_ex_lifting_step ortho_maps ctxt ;
-    fpf "after ex lifting:@.";
-    print_ps_elts' @@ ctxt_get_ps ctxt;
+    (* fpf "after ex lifting:@."; *)
+    (* print_ps_elts' @@ ctxt_get_ps ctxt; *)
     ctxt_presheaf_interleaved ctxt ;
-    fpf "@.";
+    (* fpf "@."; *)
     let r_rev = ref (-1) in
     while (!r_rev < ctxt_get_rev ctxt) do
-      fpf "starting a loop@.";
+      (* fpf "starting a loop@."; *)
       r_rev := ctxt_get_rev ctxt ;
       ctxt_enforce_unique_lifting_step ortho_maps ctxt;
       ctxt_presheaf_interleaved ctxt ;
-      fpf "after a loop:@.";
-      print_ps_elts' @@ ctxt_get_ps ctxt;
-      fpf "@.";
+      (* fpf "after a loop:@."; *)
+      (* print_ps_elts' @@ ctxt_get_ps ctxt; *)
+      (* fpf "@."; *)
     done ;
     if (old_rev < ctxt_get_rev ctxt) then
       ctxt_compute_ortho ortho_maps ctxt
     else
-      (fpf "leaving@.")
+      begin
+        (* (fpf "leaving@."); *)
+        ()
+      end
 
   (** compute the reflection of a map. ctxtX and ctxtY must be already orthogonalized. *)
   let ctxt_compute_ortho_map ortho_maps (ctxtX : ctxt) (ctxtY : ctxt) (m : morph) =
