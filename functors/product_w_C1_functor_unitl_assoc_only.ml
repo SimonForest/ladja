@@ -88,72 +88,17 @@ let presFunct = let open CategoryCat.Cat in
       AMap.find a prod_maps
   }
 
-type check_iso_infos = {
-  is_iso : bool ;
-  not_inj_witnesses : (PsCT.Cop.obj_t * PsCT.SGen.t * (PsCT.SGen.t list)) list;
-  not_surj_witnesses : (PsCT.Cop.obj_t * PsCT.SGen.t) list;
-}
-let make_check_iso_infos_true = {
-  is_iso = true;
-  not_inj_witnesses = [];
-  not_surj_witnesses = []
-}
-let check_iso psA psB morph =
-  let module OEMap = Map.Make (struct
-      type t = PsCT.Cop.obj_t * PsCT.SGen.t
-      let compare = compare
-    end)
-  in
-  let preimages = ref OEMap.empty in
-  PsCT.ps_foreach_oelt psA (fun (o,s) ->
-      let s' = PsCT.morph_img morph s in
-      preimages := OEMap.update (o,s')
-        (function None -> Some [s] | Some l -> Some (s::l))
-        !preimages
-    );
-  let res = ref make_check_iso_infos_true in
-  PsCT.ps_foreach_oelt psB (fun (o,s') ->
-      let curr_pi = Option.value
-          (OEMap.find_opt (o,s') !preimages)
-          ~default:[]
-      in
-      if curr_pi = []  then
-        begin
-          res := {!res with is_iso = false ; not_surj_witnesses = (o,s') :: (!res).not_surj_witnesses};
-        end
-      else if List.length curr_pi >= 2 then
-        res := {!res with is_iso = false ; not_inj_witnesses = (o,s',curr_pi) :: (!res).not_inj_witnesses}
-    );
-  !res
-
 let ctxt_check_iso ctxtA ctxtB morph =
   let psA = TT.Ps.ctxt_get_ps ctxtA in
   let psB = TT.Ps.ctxt_get_ps ctxtB in
-  check_iso psA psB morph
+  TT.Ps.check_iso psA psB morph
 
-let print_check_iso infos =
-  if not infos.is_iso then
-    Format.printf "The morphism is not a presheaf iso.@,";
-  List.iter (fun (o,s') ->
-      Format.printf "- %s:%s is not an image of an element.@,"
-        (TT.Ps.SGen.to_name s') (TT.Cat.obj_to_name o)
-    ) infos.not_surj_witnesses;
-  List.iter (fun (o,s',l) ->
-      Format.printf "- [";
-      List.iteri (fun i s ->
-          if i > 0 then
-            Format.printf ";";
-          Format.printf "%s" (TT.Ps.SGen.to_name s)
-        ) l;
-      Format.printf "]:%s are sent to %s:%s.@,"
-        (TT.Cat.obj_to_name o) (TT.Ps.SGen.to_name s') (TT.Cat.obj_to_name o)
-    ) infos.not_inj_witnesses
 
 let _ =
   match CategoryCat.ortho_maps with
   | [o_unitl;o_unitr;o_assoc;o_pair] ->
     let _ = (* check o_unitl *)
-      Format.printf "First goal: show that o_unitl is sent to an isomorphism.@,";
+      Format.printf "First goal: show that o_unitl is sent to an isomorphism.@\n";
       let (psA,psB,mF) = o_unitl in
       let imA_infos = FP.ps_obj_map presFunct psA in
       let imB_infos = FP.ps_obj_map presFunct psB in
@@ -163,33 +108,33 @@ let _ =
       (* T.Ps.ctxt_compute_ortho TargetTheory.ortho_maps ctxt_imA; *)
       (* T.Ps.ctxt_compute_ortho TargetTheory.ortho_maps ctxt_imB; *)
       (* let im_mF_ortho = T.Ps.ctxt_compute_ortho_map TargetTheory.ortho_maps ctxt_imA ctxt_imB im_mF in *)
-      Format.printf "Image presheaf of A:@,";
+      Format.printf "Image presheaf of A:@\n";
       TT.Ps.print_ps_elts' (TT.Ps.ctxt_get_ps ctxt_imA);
-      Format.printf "Image presheaf of B:@,";
+      Format.printf "Image presheaf of B:@\n";
       TT.Ps.print_ps_elts' (TT.Ps.ctxt_get_ps ctxt_imB);
-      Format.printf "Image morphism of g: A->B:@,";
+      Format.printf "Image morphism of g: A->B:@\n";
       TT.Ps.print_morph im_mF;
-      Format.printf "@]@,@]@.";
-      let cii = check_iso
+      Format.printf "@]@]";
+      let cii = TT.Ps.check_iso
           (TT.Ps.ctxt_get_ps ctxt_imA)
           (TT.Ps.ctxt_get_ps ctxt_imB)
           im_mF in
-      print_check_iso cii;
-      Format.printf "Try: manual method for getting isomorphism.@,";
+      TT.Ps.print_check_iso cii;
+      Format.printf "Try: manual method for getting isomorphism.@\n";
       TT.Ps.ctxt_enforce_ex_lifting_step [o_unitl] ctxt_imA;
       TT.Ps.ctxt_presheaf_interleaved ctxt_imA;
       TT.Ps.ctxt_presheaf_interleaved ctxt_imB;
       let im_mF_ortho = TT.Ps.ctxt_compute_ortho_map [o_unitl] ctxt_imA ctxt_imB im_mF in
       begin
         if TT.Ps.morph_is_iso (TT.Ps.ctxt_get_ps ctxt_imA) (TT.Ps.ctxt_get_ps ctxt_imB) im_mF_ortho then
-          Format.printf "Success: o_unitl is sent to an isomorphism.@,"
+          Format.printf "Success: o_unitl is sent to an isomorphism.@\n"
         else
-          Format.printf "Failure: inconclusive method.@,";
+          Format.printf "Failure: inconclusive method.@\n";
       end
-
     in
+    Format.printf "@\n@\n";
     let _ = (* check o_assoc *)
-      Format.printf "Second goal: show that o_assoc is sent to an isomorphism.@,";
+      Format.printf "Second goal: show that o_assoc is sent to an isomorphism.@\n";
       let (psA,psB,mF) = o_assoc in
       let imA_infos = FP.ps_obj_map presFunct psA in
       let imB_infos = FP.ps_obj_map presFunct psB in
@@ -199,28 +144,28 @@ let _ =
       (* T.Ps.ctxt_compute_ortho TargetTheory.ortho_maps ctxt_imA; *)
       (* T.Ps.ctxt_compute_ortho TargetTheory.ortho_maps ctxt_imB; *)
       (* let im_mF_ortho = T.Ps.ctxt_compute_ortho_map TargetTheory.ortho_maps ctxt_imA ctxt_imB im_mF in *)
-      Format.printf "Image presheaf of A:@,";
+      Format.printf "Image presheaf of A:@\n";
       TT.Ps.print_ps_elts' (TT.Ps.ctxt_get_ps ctxt_imA);
-      Format.printf "Image presheaf of B:@,";
+      Format.printf "Image presheaf of B:@\n";
       TT.Ps.print_ps_elts' (TT.Ps.ctxt_get_ps ctxt_imB);
-      Format.printf "Image morphism of g: A->B:@,";
+      Format.printf "Image morphism of g: A->B:@\n";
       TT.Ps.print_morph im_mF;
-      Format.printf "@]@,@]@.";
-      let cii = check_iso
+      Format.printf "@]@]";
+      let cii = TT.Ps.check_iso
           (TT.Ps.ctxt_get_ps ctxt_imA)
           (TT.Ps.ctxt_get_ps ctxt_imB)
           im_mF in
-      print_check_iso cii;
-      Format.printf "Try: manual method for getting isomorphism.@,";
+      TT.Ps.print_check_iso cii;
+      Format.printf "Try: manual method for getting isomorphism.@\n";
       TT.Ps.ctxt_enforce_ex_lifting_step [o_assoc] ctxt_imA;
       TT.Ps.ctxt_presheaf_interleaved ctxt_imA;
       TT.Ps.ctxt_presheaf_interleaved ctxt_imB;
       let im_mF_ortho = TT.Ps.ctxt_compute_ortho_map [o_assoc] ctxt_imA ctxt_imB im_mF in
       begin
         if TT.Ps.morph_is_iso (TT.Ps.ctxt_get_ps ctxt_imA) (TT.Ps.ctxt_get_ps ctxt_imB) im_mF_ortho then
-          Format.printf "Success: o_assoc is sent to an isomorphism.@,"
+          Format.printf "Success: o_assoc is sent to an isomorphism.@\n"
         else
-          Format.printf "Failure: inconclusive method.@,";
+          Format.printf "Failure: inconclusive method.@\n";
       end
     in
     ()

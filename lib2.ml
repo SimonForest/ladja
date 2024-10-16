@@ -250,6 +250,13 @@ module type PresheafT = sig
   val morph_img : morph -> SGen.t -> SGen.t
   val morph_img_opt : morph -> Cop.OGen.t -> SGen.t -> SGen.t option
   val morph_is_iso : t' -> t' -> morph -> bool
+  type check_iso_infos = {
+    is_iso : bool ;
+    not_inj_witnesses : (Cop.obj_t * SGen.t * (SGen.t list)) list;
+    not_surj_witnesses : (Cop.obj_t * SGen.t) list;
+  }
+  val check_iso : t' -> t' -> morph -> check_iso_infos
+  val print_check_iso : check_iso_infos -> unit
   type ctxt
   val create_ctxt : t' -> ctxt
   val ctxt_incr_rev : ctxt -> unit
@@ -542,6 +549,61 @@ module Presheaf (C : Category) : PresheafT with module C = C = struct
     with
     | Exit -> false
 
+  type check_iso_infos = {
+    is_iso : bool ;
+    not_inj_witnesses : (Cop.obj_t * SGen.t * (SGen.t list)) list;
+    not_surj_witnesses : (Cop.obj_t * SGen.t) list;
+  }
+  let make_check_iso_infos_true = {
+    is_iso = true;
+    not_inj_witnesses = [];
+    not_surj_witnesses = []
+  }
+  let check_iso psA psB morph =
+    let module OEMap = Map.Make (struct
+        type t = Cop.obj_t * SGen.t
+        let compare = compare
+      end)
+    in
+    let preimages = ref OEMap.empty in
+    ps_foreach_oelt psA (fun (o,s) ->
+        let s' = morph_img morph s in
+        preimages := OEMap.update (o,s')
+            (function None -> Some [s] | Some l -> Some (s::l))
+            !preimages
+      );
+    let res = ref make_check_iso_infos_true in
+    ps_foreach_oelt psB (fun (o,s') ->
+        let curr_pi = Option.value
+            (OEMap.find_opt (o,s') !preimages)
+            ~default:[]
+        in
+        if curr_pi = []  then
+          begin
+            res := {!res with is_iso = false ; not_surj_witnesses = (o,s') :: (!res).not_surj_witnesses};
+          end
+        else if List.length curr_pi >= 2 then
+          res := {!res with is_iso = false ; not_inj_witnesses = (o,s',curr_pi) :: (!res).not_inj_witnesses}
+      );
+    !res
+
+  let print_check_iso infos =
+    if not infos.is_iso then
+      Format.printf "The morphism is not a presheaf iso.@,";
+    List.iter (fun (o,s') ->
+        Format.printf "- %s:%s is not an image of an element.@,"
+          (SGen.to_name s') (C.obj_to_name o)
+      ) infos.not_surj_witnesses;
+    List.iter (fun (o,s',l) ->
+        Format.printf "- [";
+        List.iteri (fun i s ->
+            if i > 0 then
+              Format.printf ";";
+            Format.printf "%s" (SGen.to_name s)
+          ) l;
+        Format.printf "]:%s are sent to %s:%s.@,"
+          (C.obj_to_name o) (SGen.to_name s') (C.obj_to_name o)
+      ) infos.not_inj_witnesses
 
   (** Tell whether a morphism is a weak epi, in the sense that every element of
      B is below an element in the image of F. *)
