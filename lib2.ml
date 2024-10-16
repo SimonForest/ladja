@@ -340,7 +340,8 @@ module type PresheafT = sig
     (Cop.OGen.t * SGen.t) list ->
     (Cop.AGen.t * SGen.t * SGen.t) list ->
     (Cop.OGen.t * SGen.t * SGen.t) list -> unit
-  val ctxt_add_ps_copy : ctxt -> t' -> morph
+  val ctxt_add_ps_copy :
+    ?rename_fun:(string -> string) -> ctxt -> t' -> morph
   val enforce_ex_lifting_step :
     (t' * t' * morph) list -> t' -> t' * morph
   val ctxt_enforce_ex_lifting_step :
@@ -1101,9 +1102,9 @@ module Presheaf (C : Category) : PresheafT with module C = C = struct
 
   let rec ctxt_presheaf_interleaved (ctxt : ctxt) =
     let old_rev = ctxt_get_rev ctxt in
-    ctxt_expand_presheaf_one_step ctxt ;
-    ctxt_enforce_equations_one_step ctxt ;
     ctxt_enforce_many_to_one ctxt ;
+    ctxt_enforce_equations_one_step ctxt ;
+    ctxt_expand_presheaf_one_step ctxt ;
     let new_rev = ctxt_get_rev ctxt in
     if old_rev < new_rev then
       ctxt_presheaf_interleaved ctxt
@@ -1275,8 +1276,8 @@ module Presheaf (C : Category) : PresheafT with module C = C = struct
       !(psB.maps);
     (psB',mBB')
 
-  let ps_make_copy psB =
-    ps_make_renamed_copy psB (fun o el -> SGen.to_name el)
+  let ps_make_copy ?(rename_fun = fun s -> s) psB =
+    ps_make_renamed_copy psB (fun o el -> rename_fun @@ SGen.to_name el)
 
   let morph_comp l r =
     let res = List.map
@@ -1350,10 +1351,10 @@ module Presheaf (C : Category) : PresheafT with module C = C = struct
     List.iter (fun (o,l,r) -> ctxt_equalize_elts ctxt o l r) new_equalities
 
   (* add a copy of a presheaf. *)
-  let ctxt_add_ps_copy (ctxt : ctxt) (ps : t') : morph =
+  let ctxt_add_ps_copy ?(rename_fun = fun s -> s) (ctxt : ctxt) (ps : t') : morph =
     let new_elts = ref [] in
     let new_maps = ref [] in
-    let (psCopy,m) = ps_make_copy ps in
+    let (psCopy,m) = ps_make_copy ~rename_fun:rename_fun ps in
     (*TODO: better names for the copy. *)
     ps_foreach_oelt psCopy (fun (o,el) ->
         Utils.tell new_elts (o,el)
@@ -1837,7 +1838,10 @@ module FunctorPres (S : TheoryT) (T : TheoryT) (* : FunctorPresT *) = struct
     let proj_per_el = ref OEMap.empty in
     (* ^ projections in the copy of the presheaves induced by the elements of psS. *)
     S.Ps.ps_foreach_oelt psS (fun (o,el) ->
-        let m = T.Ps.ctxt_add_ps_copy ctxtRes (presFunct.obj_map o) in
+        let m = T.Ps.ctxt_add_ps_copy
+            ~rename_fun:(fun s -> "(" ^ s ^ "," ^ S.Ps.SGen.to_name el ^ ")")
+            ctxtRes (presFunct.obj_map o)
+        in
         proj_per_el := OEMap.add (o,el) m !proj_per_el
     ) ;
     let new_equalities = ref [] in
